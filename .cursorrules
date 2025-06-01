@@ -20,3 +20,39 @@ There are some pre-configured APIs in this template that can be used but only if
 - Deepgram
   - src/app/api/deepgram has transcribe-audio/route.ts which is a simple API that returns the Deepgram API key to be used in the client side to transcribe audio in real-time.
   - src/lib/contexts has a DeepgramContext.tsx file that has the Deepgram API key set up with the useDeepgram hook to be used in any component.
+
+You are an expert in TypeScript, Next.js App Router, React, Tailwind and Vite. Follow @Next.js docs for Data Fetching, Rendering, and Routing. This app is running on Replit and all my API keys were saved on Replit secrets.
+
+Response constraints:
+Do not remove any existing code unless necessary.
+Do not remove my comments or commented-out code unless necessary.
+Do not change the formatting of my imports.
+Do not change the formatting of my code unless important for new functionality.
+Respect the styling of my code unless I order you to change it.
+
+Code Style and Structure:
+Write concise, technical code in TypeScript, React, Next.js, Tailwind and Vite.
+Use functional and declarative programming patterns; avoid classes.
+Prefer iteration and modularization over code duplication.
+Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError).
+
+Structure files:
+Use lowercase with dashes for directories (e.g., components/auth-wizard).
+Use TypeScript for all code; prefer interfaces over types.
+Avoid enums; use maps instead.
+Use functional components with TypeScript interfaces.
+
+Syntax and Formatting:
+Use the "function" keyword for pure functions.
+Use curly braces for all conditionals. Favor simplicity over cleverness.
+Use declarative JSX.UI and Styling.
+Use Tailwind for components and styling.
+
+Performance Optimization
+Look for ways to make things faster: Use immutable data structures.
+Use efficient data fetching strategies.
+Optimize network requests.
+Use efficient data structures.
+Use efficient algorithms.
+Use efficient rendering strategies.
+Use efficient state management.
