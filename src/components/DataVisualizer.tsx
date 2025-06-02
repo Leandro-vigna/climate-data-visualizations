@@ -20,7 +20,7 @@ interface DataVisualizerProps {
   session: Session;
 }
 
-export function DataVisualizer({ session }: DataVisualizerProps) {
+export default function DataVisualizer({ session }: DataVisualizerProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [parsedRecords, setParsedRecords] = useState<ParsedRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);

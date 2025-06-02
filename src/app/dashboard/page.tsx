@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import { DataVisualizer } from '../../components/DataVisualizer';
+import DataVisualizer from '../../components/DataVisualizer';
 
 export default function DashboardPage() {
   const { data: session, status } = useSession({
@@ -16,5 +16,9 @@ export default function DashboardPage() {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
   }
 
-  return <DataVisualizer session={session} />;
+  return (
+    <div className="pl-64">
+      <DataVisualizer session={session} />
+    </div>
+  );
 } 
