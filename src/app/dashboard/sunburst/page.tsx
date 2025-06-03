@@ -2,8 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import GHGEmissionsSunburst from '../../../components/GHGEmissionsSunburst';
-import { ghgEmissionsData } from '../../../lib/data/ghgEmissions';
+import SunburstChartTabs from '../../../components/SunburstChartTabs';
 
 export default function SunburstPage() {
   const { data: session, status } = useSession({
@@ -25,9 +24,7 @@ export default function SunburstPage() {
           Interactive visualization of global greenhouse gas emissions by sector, showing the breakdown
           of emissions across different sectors and their subsectors.
         </p>
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <GHGEmissionsSunburst data={ghgEmissionsData} />
-        </div>
+        <SunburstChartTabs />
       </main>
     </div>
   );
