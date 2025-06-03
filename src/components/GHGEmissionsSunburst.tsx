@@ -9,10 +9,10 @@ interface GHGEmissionsSunburstProps {
 }
 
 const sectorColors: { [key: string]: string } = {
-  'energy': '#DC2626', // red-600
-  'agriculture-forestry-land-use': '#059669', // green-600
-  'industry': '#6B7280', // gray-500
-  'waste': '#2563EB', // blue-600
+  'energy': '#F59E0B', // amber-500 (orange from the reference)
+  'agriculture-forestry-land-use': '#10B981', // emerald-500 (green from the reference)
+  'industry': '#06B6D4', // cyan-500 (blue/teal from the reference)
+  'waste': '#8B5CF6', // violet-500 (purple from the reference)
 };
 
 export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps) {
@@ -86,6 +86,33 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       share?: number;
       depth?: number;
     }
+
+    // Function to get color based on depth and parent sector
+    const getNodeColor = (node: HierarchyDatum, parentSectorId?: string): string => {
+      if (node.depth === 1) {
+        // Main sectors - use the defined colors
+        return sectorColors[node.id || ''] || '#94A3B8';
+      } else if (node.depth === 2) {
+        // Subsectors - lighter version of parent sector color
+        switch (parentSectorId) {
+          case 'energy': return '#FCD34D'; // amber-300
+          case 'agriculture-forestry-land-use': return '#6EE7B7'; // emerald-300
+          case 'industry': return '#67E8F9'; // cyan-300
+          case 'waste': return '#C4B5FD'; // violet-300
+          default: return '#CBD5E1'; // gray-300
+        }
+      } else if (node.depth === 3) {
+        // Sub-subsectors - even lighter version
+        switch (parentSectorId) {
+          case 'energy': return '#FEF3C7'; // amber-100
+          case 'agriculture-forestry-land-use': return '#D1FAE5'; // emerald-100
+          case 'industry': return '#CFFAFE'; // cyan-100
+          case 'waste': return '#EDE9FE'; // violet-100
+          default: return '#F1F5F9'; // gray-100
+        }
+      }
+      return '#CBD5E1'; // fallback
+    };
 
     // Transform the flat data into a hierarchical structure
     const processData = (data: EmissionNode[]): HierarchyDatum => {
@@ -190,7 +217,7 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       if (arcLength > MIN_ARC_LENGTH.CENTER_HORIZONTAL) {
         createHorizontalCenterLabel(g, node, text, percentage, angle, FONT_SIZES.CENTER_LARGE);
       } else {
-        // For smaller sectors, use radial alignment positioned near the arc
+        // For smaller sectors, use radial alignment positioned near the arc edge
         const labelRadius = radius * CENTER_RADIUS * 0.8; // Position closer to the edge
         createRadialCenterLabel(g, `${text}\n${percentage}`, angle, labelRadius, FONT_SIZES.CENTER_SMALL);
       }
@@ -248,10 +275,18 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       angle: number,
       fontSize: string
     ) {
+      // Position at the geometric center of the sector
+      // Calculate the exact x,y coordinates of the geometric center
+      const sectorMidAngle = (node.startAngle + node.endAngle) / 2;
+      const sectorCenterRadius = radius * CENTER_RADIUS / 2; // Halfway from center to edge
+      
+      // Calculate x,y position of the geometric center
+      const centerX = Math.cos(sectorMidAngle - Math.PI / 2) * sectorCenterRadius;
+      const centerY = Math.sin(sectorMidAngle - Math.PI / 2) * sectorCenterRadius;
+
       // Calculate available width based on sector arc length at label radius
-      const labelRadius = radius * CENTER_RADIUS * 0.5;
       const sectorAngle = Math.abs(node.endAngle - node.startAngle); // Get sector angle in radians
-      const availableWidth = sectorAngle * labelRadius * 0.8; // 80% of arc length for safety margin
+      const availableWidth = sectorAngle * sectorCenterRadius * 0.8; // 80% of arc length for safety margin
       const charWidth = parseFloat(fontSize) * 0.6; // Approximate character width
       const maxCharsPerLine = Math.floor(availableWidth / charWidth);
 
@@ -287,34 +322,27 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
 
       const lineHeight = parseFloat(fontSize) * 1.1;
       
-      // Normalize angle to handle text orientation correctly
-      const normalizedAngle = ((angle % 360) + 360) % 360;
-      const isBottomHalf = normalizedAngle > 90 && normalizedAngle < 270;
-
-      // Simple centering: calculate offset from center for each line
+      // Calculate the central position for the entire label block
       const totalLines = lines.length;
-      const centerOffset = (totalLines - 1) * lineHeight / 2;
 
       lines.forEach((line, i) => {
-        // For bottom half, reverse the line order to read top to bottom
-        const displayIndex = isBottomHalf ? totalLines - 1 - i : i;
-        
-        // Position relative to center: start from top and go down
-        const yPosition = -centerOffset + (displayIndex * lineHeight);
+        // For perfect centering, calculate position relative to center
+        const totalSpan = (totalLines - 1) * lineHeight;
+        const yOffset = -(totalSpan / 2) + (i * lineHeight);
         
         g.append('text')
-          .attr('dy', '0.35em')
+          .attr('x', centerX)
+          .attr('y', centerY + yOffset)
           .attr('fill', '#FFFFFF')
           .attr('font-size', fontSize)
           .attr('font-weight', 'bold')
-          .attr('transform', `rotate(${angle}) translate(${labelRadius},${yPosition}) rotate(${-angle})`)
           .attr('text-anchor', 'middle')
-          .attr('dominant-baseline', 'middle')
+          .attr('dominant-baseline', 'central')
           .text(line);
       });
     }
 
-    // RADIAL CENTER LABEL CREATION - For smaller sectors, positioned near arc edge
+    // RADIAL CENTER LABEL CREATION - For smaller sectors, positioned at geometric center
     function createRadialCenterLabel(
       g: d3.Selection<SVGGElement, unknown, null, undefined>,
       text: string,
@@ -395,29 +423,95 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       text: string,
       midAngle: number
     ) {
-      // Split long text into multiple lines if needed
+      // Calculate available space from ring edge to SVG boundary
+      const svgCenterX = width / 2;
+      const svgCenterY = height / 2;
+      const maxDistanceToEdge = Math.min(svgCenterX, svgCenterY) - 20; // 20px margin
+      
+      // Calculate how much space we have from the ring edge to the boundary
+      const availableSpace = maxDistanceToEdge - labelRadius;
+      
+      // Estimate character width and calculate max characters per line
+      const charWidth = parseFloat(fontSize) * 0.6;
+      const maxCharsPerLine = Math.max(15, Math.floor(availableSpace / charWidth * 0.9)); // Better threshold for Rice cultivation
+      
+      // Smart line breaking - try to keep percentage with some text
       const words = text.split(' ');
       const lines = [];
-      if (words.length > 3 && text.length > 20) {
-        const mid = Math.ceil(words.length / 2);
-        lines.push(words.slice(0, mid).join(' '));
-        lines.push(words.slice(mid).join(' '));
+      
+      // First, try to separate the percentage part
+      const lastWord = words[words.length - 1];
+      const isPercentage = lastWord.includes('(') && lastWord.includes('%') && lastWord.includes(')');
+      
+      if (isPercentage && words.length > 2) { // At least 3 words to consider smart breaking
+        // Try to keep some text with the percentage
+        const mainWords = words.slice(0, -1);
+        const percentageWord = lastWord;
+        
+        let currentLine = '';
+        
+        // Process main words
+        for (let i = 0; i < mainWords.length; i++) {
+          const word = mainWords[i];
+          const testLine = currentLine ? `${currentLine} ${word}` : word;
+          
+          // Check if we can fit the percentage on this line too (if it's the last main word)
+          const isLastMainWord = i === mainWords.length - 1;
+          const testWithPercentage = isLastMainWord ? `${testLine} ${percentageWord}` : testLine;
+          
+          if (isLastMainWord && testWithPercentage.length <= maxCharsPerLine) {
+            // Can fit everything on one line
+            lines.push(testWithPercentage);
+            break;
+          } else if (testLine.length <= maxCharsPerLine) {
+            currentLine = testLine;
+            
+            // If this is the last word, add current line and percentage separately
+            if (isLastMainWord) {
+              lines.push(currentLine);
+              lines.push(percentageWord);
+            }
+          } else {
+            // Line is too long, save current line and start new one
+            if (currentLine) {
+              lines.push(currentLine);
+              currentLine = word;
+              
+              // If this is the last word, also add the percentage
+              if (isLastMainWord) {
+                lines.push(currentLine);
+                lines.push(percentageWord);
+              }
+            } else {
+              lines.push(word);
+              if (isLastMainWord) {
+                lines.push(percentageWord);
+              }
+            }
+          }
+        }
       } else {
-        lines.push(text);
+        // Standard line breaking for non-percentage text or simple cases
+        let currentLine = '';
+        for (const word of words) {
+          const testLine = currentLine ? `${currentLine} ${word}` : word;
+          if (testLine.length <= maxCharsPerLine) {
+            currentLine = testLine;
+          } else {
+            if (currentLine) {
+              lines.push(currentLine);
+              currentLine = word;
+            } else {
+              lines.push(word);
+            }
+          }
+        }
+        if (currentLine) {
+          lines.push(currentLine);
+        }
       }
 
-      const lineHeight = parseFloat(fontSize) * 1.1;
-      
-      // Calculate the starting position at the outer edge of the ring
-      const startX = Math.cos(midAngle - Math.PI / 2) * labelRadius;
-      const startY = Math.sin(midAngle - Math.PI / 2) * labelRadius;
-      
-      // Calculate direction vector for extending outward
-      const dirX = Math.cos(midAngle - Math.PI / 2);
-      const dirY = Math.sin(midAngle - Math.PI / 2);
-      
-      // Extension distance
-      const extensionDistance = 15;
+      const lineHeight = parseFloat(fontSize) * 1.2;
       
       // Convert angle to degrees for rotation
       const angleDegrees = (midAngle - Math.PI / 2) * 180 / Math.PI;
@@ -430,10 +524,35 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       const textRotation = shouldFlip ? angleDegrees + 180 : angleDegrees;
       const textAnchor = shouldFlip ? 'end' : 'start';
 
+      // Extension distance from the ring edge
+      const extensionDistance = 10;
+
       lines.forEach((line, i) => {
-        // Position each line extending outward from the ring edge
-        const finalX = startX + (dirX * extensionDistance);
-        const finalY = startY + (dirY * extensionDistance) + (i * lineHeight);
+        // Calculate individual position for each line BEFORE rotation
+        // This ensures consistent spacing regardless of rotation angle
+        
+        // Start from the outer edge of the ring
+        const baseRadius = labelRadius + extensionDistance;
+        
+        // For left side labels (flipped), reverse the line order so text reads top to bottom
+        const lineIndex = shouldFlip ? (lines.length - 1 - i) : i;
+        
+        // Calculate line offset along the direction perpendicular to the radial direction
+        // This creates consistent vertical spacing in the "text's local coordinate system"
+        const lineOffset = (lineIndex - (lines.length - 1) / 2) * lineHeight;
+        
+        // For each line, calculate its position in Cartesian coordinates
+        // Base position along the radial direction
+        const baseX = Math.cos(midAngle - Math.PI / 2) * baseRadius;
+        const baseY = Math.sin(midAngle - Math.PI / 2) * baseRadius;
+        
+        // Offset position perpendicular to radial direction for line spacing
+        // The perpendicular direction is rotated 90 degrees from the radial direction
+        const perpX = -Math.sin(midAngle - Math.PI / 2) * lineOffset;
+        const perpY = Math.cos(midAngle - Math.PI / 2) * lineOffset;
+        
+        const finalX = baseX + perpX;
+        const finalY = baseY + perpY;
         
         g.append('text')
           .attr('x', finalX)
@@ -449,11 +568,14 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
     }
 
     // Recursive function to render arcs
-    const renderArcs = (parent: d3.Selection<SVGGElement, unknown, null, undefined>, node: HierarchyDatum) => {
+    const renderArcs = (parent: d3.Selection<SVGGElement, unknown, null, undefined>, node: HierarchyDatum, parentSectorId?: string) => {
       const g = parent.append('g');
 
       // Draw this node's arc
       if (node.depth) {
+        // Determine the sector ID for color selection
+        const currentSectorId = node.depth === 1 ? node.id : parentSectorId;
+        
         g.append('path')
           .attr('d', getArc(node.depth)({
             startAngle: node.startAngle,
@@ -461,43 +583,36 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
             innerRadius: node.innerRadius,
             outerRadius: node.outerRadius
           }))
-          .attr('fill', node.depth === 1 ? (sectorColors[node.id || ''] || '#94A3B8') : '#CBD5E1');
+          .attr('fill', getNodeColor(node, currentSectorId));
 
-        // LABEL RENDERING SYSTEM
-        // ======================
-        // CENTER LABELS: Horizontal for large sectors, radial for small
-        // RING LABELS: Curved when possible, radial extending outward when too small or upside down
-        // Never show upside down text
-
-        const midAngle = (node.startAngle + node.endAngle) / 2;
-        const arcLength = Math.abs(node.endAngle - node.startAngle) * 
-          (node.depth === 1 ? radius * CENTER_RADIUS :
-           node.depth === 2 ? radius * MIDDLE_RING_END :
-           radius * OUTER_RING_END);
-
+        // Add center labels for main sectors
         if (node.depth === 1) {
-          // CENTER PIE CHART LABELS - Horizontal for large sectors, radial for small
+          const midAngle = (node.startAngle + node.endAngle) / 2;
+          const arcLength = Math.abs(node.endAngle - node.startAngle) * radius * CENTER_RADIUS;
           renderCenterLabel(g, node, midAngle, arcLength);
         } else if (node.depth === 2 || node.depth === 3) {
           // RING LABELS - Curved preferred, radial extending outward as fallback
+          const midAngle = (node.startAngle + node.endAngle) / 2;
+          const arcLength = Math.abs(node.endAngle - node.startAngle) * 
+            (node.depth === 2 ? radius * MIDDLE_RING_END : radius * OUTER_RING_END);
           renderRingLabel(g, node, midAngle, arcLength);
         }
       }
 
       // Recursively render children
       if (node.children) {
-        node.children.forEach(child => renderArcs(g, child));
+        node.children.forEach(child => renderArcs(g, child, node.depth === 1 ? node.id : parentSectorId));
       }
     };
 
     // Start rendering from root
-    renderArcs(svg, hierarchicalData);
+    renderArcs(svg, hierarchicalData, undefined);
 
   }, [data]);
 
   return (
-    <div className="flex justify-center items-center bg-white rounded-lg shadow-lg p-8">
+    <div className="flex justify-center items-center bg-white rounded-lg shadow-lg">
       <svg ref={svgRef} />
     </div>
   );
-}
+} 
