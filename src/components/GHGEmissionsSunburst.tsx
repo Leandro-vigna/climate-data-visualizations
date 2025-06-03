@@ -232,29 +232,46 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
     ) {
       const isMiddleRing = node.depth === 2;
       
-      // Position curved text at the center of each ring
+      // For curved labels, position them between rings to avoid overlap
       const curvedLabelRadius = isMiddleRing ? 
-        radius * (MIDDLE_RING_START + MIDDLE_RING_END) / 2 :
-        radius * (OUTER_RING_START + OUTER_RING_END) / 2;
+        radius * MIDDLE_RING_END + 5 : // Reduced space from middle ring
+        radius * (OUTER_RING_END + 0.02); // Just slightly outside outer ring to avoid overlap
       
-      // Position radial text starting from the outer edge, extending outward (like reference image)
+      // Position radial text starting from the outer edge, extending outward
       const radialLabelRadius = isMiddleRing ? 
-        radius * MIDDLE_RING_END : // Start exactly at the outer edge of middle ring
-        radius * OUTER_RING_END;   // Start exactly at the outer edge of outer ring
+        radius * MIDDLE_RING_END : 
+        radius * OUTER_RING_END;   
       
       const fontSize = isMiddleRing ? FONT_SIZES.MIDDLE : FONT_SIZES.OUTER;
       const text = `${node.name} (${node.share}%)`;
 
-      // Try curved text first, fallback to radial if too small or would be upside down
-      if (arcLength > MIN_ARC_LENGTH.RING_CURVED) {
-        const estimatedTextWidth = text.length * parseFloat(fontSize) * 0.5;
-        if (estimatedTextWidth < arcLength && !wouldBeUpsideDown(midAngle)) {
-          createCurvedRingLabel(g, node, curvedLabelRadius, fontSize, text);
-          return;
-        }
+      // BALANCED LOGIC - Allow curved for medium-large segments, radial for smaller ones
+      // Based on console data: Energy use in Industry (474.4, 30 chars), Transport (317.6, 17 chars), Energy use in buildings (343.1, 31 chars)
+      // Keep smaller segments like Livestock & manure (113.7, 25 chars), Agricultural soils (80.4, 25 chars) as radial
+      
+      let shouldUseCurved = false;
+      
+      if (isMiddleRing) {
+        // Middle ring: Allow curved for substantial segments
+        const isLarge = arcLength >= 250; // Allow Transport (317.6) and larger
+        const isReasonableText = text.length <= 35; // Allow most middle ring text
+        const isMedium = arcLength >= 150; // For medium segments
+        const isShortText = text.length <= 25; // Shorter text for medium segments
+        
+        shouldUseCurved = (isLarge && isReasonableText) || (isMedium && isShortText);
+      } else {
+        // Outer ring: Allow curved only for large segments with short text
+        const isLarge = arcLength >= 200; // Allow larger outer segments
+        const isShortText = text.length <= 20; // Keep text reasonable
+        shouldUseCurved = isLarge && isShortText;
       }
       
-      // Fallback to radial orientation - positioned near outer edge
+      if (shouldUseCurved) {
+        createCurvedRingLabel(g, node, curvedLabelRadius, fontSize, text);
+        return;
+      }
+      
+      // Use radial orientation only for very small arcs or very long text
       if (arcLength > MIN_ARC_LENGTH.RING_RADIAL) {
         createRadialRingLabel(g, node, radialLabelRadius, fontSize, text, midAngle);
       }
@@ -377,7 +394,7 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       });
     }
 
-    // CURVED RING LABEL CREATION - For ring labels when space allows
+    // CURVED RING LABEL CREATION - Full segment arc, proper centering
     function createCurvedRingLabel(
       g: d3.Selection<SVGGElement, unknown, null, undefined>,
       node: HierarchyDatum,
@@ -388,29 +405,44 @@ export default function GHGEmissionsSunburst({ data }: GHGEmissionsSunburstProps
       const midAngle = (node.startAngle + node.endAngle) / 2;
       const id = `label-${node.id}-${node.depth}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Create the path for curved text - properly oriented
+      // Determine if we're in the bottom half
       const isBottomHalf = midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2;
       
+      // Use consistent path direction
+      const pathStartAngle = node.startAngle;
+      const pathEndAngle = node.endAngle;
+      
+      // Position text outside the ring
+      const textRadius = labelRadius + 10; // Match radial label spacing (extensionDistance = 10)
+
+      // Create the curved path with consistent direction
       g.append('path')
         .attr('id', id)
         .attr('d', d3.arc()({
-          startAngle: isBottomHalf ? node.endAngle : node.startAngle,
-          endAngle: isBottomHalf ? node.startAngle : node.endAngle,
-          innerRadius: labelRadius,
-          outerRadius: labelRadius
+          startAngle: pathStartAngle,
+          endAngle: pathEndAngle,
+          innerRadius: textRadius,
+          outerRadius: textRadius
         }))
         .style('fill', 'none')
         .style('display', 'none');
 
-      // Add the curved text
+      // Split text into words to handle potential line breaks
+      const words = text.split(' ');
+      
+      // For bottom half, start from the other end to read left-to-right
+      const startOffset = isBottomHalf ? '100%' : '0%';
+      const textAnchor = isBottomHalf ? 'end' : 'start';
+      
+      // Create text with proper orientation
       g.append('text')
-        .attr('dy', '0.35em')
         .attr('font-size', fontSize)
         .attr('fill', '#374151')
         .append('textPath')
         .attr('xlink:href', `#${id}`)
-        .attr('startOffset', '50%')
-        .attr('text-anchor', 'middle')
+        .attr('startOffset', startOffset)
+        .attr('text-anchor', textAnchor)
+        .attr('dy', isBottomHalf ? '-0.3em' : '1.0em') // Adjust position based on location
         .text(text);
     }
 
