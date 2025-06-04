@@ -1,31 +1,50 @@
-'use client';
+"use client";
 
-import { useSession } from 'next-auth/react';
-import { redirect } from 'next/navigation';
-import SunburstChartTabs from '../../../components/SunburstChartTabs';
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { getDocuments, addDocument } from "../../../lib/firebase/firebaseUtils";
 
-export default function SunburstPage() {
-  const { data: session, status } = useSession({
-    required: true,
-    onUnauthenticated() {
-      redirect('/');
-    },
-  });
+// Default seed data for a new version
+const defaultTableData = [
+  { id: "1", location: "WORLD", sector: "Energy", subsector: "", subSubsector: "", value: 73.2 },
+  { id: "2", location: "WORLD", sector: "Energy", subsector: "Electricity/Heat", subSubsector: "", value: 24.2 },
+  { id: "3", location: "WORLD", sector: "Energy", subsector: "Transport", subSubsector: "", value: 16.2 },
+  { id: "4", location: "WORLD", sector: "Energy", subsector: "Other Fuel Combustion", subSubsector: "", value: 10.6 },
+  { id: "5", location: "WORLD", sector: "Agriculture", subsector: "", subSubsector: "", value: 18.4 },
+  { id: "6", location: "WORLD", sector: "Agriculture", subsector: "Livestock & Manure", subSubsector: "", value: 5.8 },
+  { id: "7", location: "WORLD", sector: "Agriculture", subsector: "Rice Cultivation", subSubsector: "", value: 1.3 },
+  { id: "8", location: "WORLD", sector: "Industry", subsector: "", subSubsector: "", value: 5.2 },
+  { id: "9", location: "WORLD", sector: "Waste", subsector: "", subSubsector: "", value: 3.2 }
+];
 
-  if (status === 'loading') {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
-  }
+export default function SunburstRedirectPage() {
+  const router = useRouter();
 
-  return (
-    <div className="pl-64">
-      <main className="min-h-screen p-8">
-        <h1 className="text-3xl font-bold mb-8">Global Greenhouse Gas Emissions by Sector (2016)</h1>
-        <p className="text-gray-600 mb-8">
-          Interactive visualization of global greenhouse gas emissions by sector, showing the breakdown
-          of emissions across different sectors and their subsectors.
-        </p>
-        <SunburstChartTabs />
-      </main>
-    </div>
-  );
+  useEffect(() => {
+    let cancelled = false;
+    async function ensureVersionAndRedirect() {
+      // Check if we are already on a version page
+      if (window.location.pathname.includes('/dashboard/sunburst/')) {
+        return;
+      }
+      const versions = await getDocuments('sunburstVersions');
+      if (cancelled) return;
+      if (versions.length > 0) {
+        router.replace(`/dashboard/sunburst/${versions[0].id}`);
+      } else {
+        // Create a default version
+        const docRef = await addDocument('sunburstVersions', {
+          name: 'Default',
+          tableData: defaultTableData,
+          labelOverrides: {}
+        });
+        if (cancelled) return;
+        router.replace(`/dashboard/sunburst/${docRef.id}`);
+      }
+    }
+    ensureVersionAndRedirect();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  return <div>Redirecting...</div>;
 } 

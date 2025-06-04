@@ -28,6 +28,6 @@ export default function Home() {
       >
         Sign in with Google
       </button>
-    </div>
+      </div>
   );
 }
