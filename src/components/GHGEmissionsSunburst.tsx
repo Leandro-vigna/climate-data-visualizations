@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
 import { EmissionNode } from '../lib/data/ghgEmissions';
+import { useTheme } from '../lib/contexts/ThemeContext';
 
 interface GHGEmissionsSunburstProps {
   data: EmissionNode[];
@@ -12,13 +13,6 @@ interface GHGEmissionsSunburstProps {
   onSaveOverrides?: (overrides: { [key: string]: 'radial' | 'curved' }) => void;
   onRestoreDefaults?: () => void;
 }
-
-const sectorColors: { [key: string]: string } = {
-  'energy': '#F59E0B', // amber-500 (orange from the reference)
-  'agriculture-forestry-land-use': '#10B981', // emerald-500 (green from the reference)
-  'industry': '#06B6D4', // cyan-500 (blue/teal from the reference)
-  'waste': '#8B5CF6', // violet-500 (purple from the reference)
-};
 
 const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
   data,
@@ -31,6 +25,8 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
   const svgRef = useRef<SVGSVGElement>(null);
   const [localLabelOverrides, setLocalLabelOverrides] = useState<{ [key: string]: 'radial' | 'curved' }>({});
   const labelOverrides = editMode ? localLabelOverrides : (propLabelOverrides || {});
+  const { currentTheme } = useTheme();
+  const categorical = currentTheme.colors.categorical as string[];
 
   // Expose a method to get the current localLabelOverrides
   useImperativeHandle(ref, () => ({
@@ -46,6 +42,35 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
     }
     // Do NOT reset localLabelOverrides on exit, let it be ignored
   }, [editMode]);
+
+  // Helper to lighten a hex color by a given percent (0-1)
+  function lighten(hex: string, percent: number): string {
+    let c = hex.replace('#', '');
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    const num = parseInt(c, 16);
+    let r = (num >> 16) + Math.round((255 - (num >> 16)) * percent);
+    let g = ((num >> 8) & 0x00FF) + Math.round((255 - ((num >> 8) & 0x00FF)) * percent);
+    let b = (num & 0x0000FF) + Math.round((255 - (num & 0x0000FF)) * percent);
+    r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+  }
+
+  // Map sector index to categorical color
+  function getSectorColor(index: number): string {
+    return categorical[index % categorical.length];
+  }
+
+  // Assign color to node based on depth and parent color
+  function getNodeColor(node: any, parentColor?: string, sectorIndex?: number): string {
+    if (node.depth === 1) {
+      return getSectorColor(sectorIndex ?? 0);
+    } else if (node.depth === 2) {
+      return lighten(parentColor || '#cccccc', 0.35);
+    } else if (node.depth === 3) {
+      return lighten(parentColor || '#cccccc', 0.65);
+    }
+    return '#CBD5E1';
+  }
 
   // Helper to toggle a label's alignment override
   function handleLabelDoubleClick(labelId: string) {
@@ -139,34 +164,9 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       name?: string;
       share?: number;
       depth?: number;
+      color?: string;
+      sectorIdx?: number;
     }
-
-    // Function to get color based on depth and parent sector
-    const getNodeColor = (node: HierarchyDatum, parentSectorId?: string): string => {
-      if (node.depth === 1) {
-        // Main sectors - use the defined colors
-        return sectorColors[node.id || ''] || '#94A3B8';
-      } else if (node.depth === 2) {
-        // Subsectors - lighter version of parent sector color
-        switch (parentSectorId) {
-          case 'energy': return '#FCD34D'; // amber-300
-          case 'agriculture-forestry-land-use': return '#6EE7B7'; // emerald-300
-          case 'industry': return '#67E8F9'; // cyan-300
-          case 'waste': return '#C4B5FD'; // violet-300
-          default: return '#CBD5E1'; // gray-300
-        }
-      } else if (node.depth === 3) {
-        // Sub-subsectors - even lighter version
-        switch (parentSectorId) {
-          case 'energy': return '#FEF3C7'; // amber-100
-          case 'agriculture-forestry-land-use': return '#D1FAE5'; // emerald-100
-          case 'industry': return '#CFFAFE'; // cyan-100
-          case 'waste': return '#EDE9FE'; // violet-100
-          default: return '#F1F5F9'; // gray-100
-        }
-      }
-      return '#CBD5E1'; // fallback
-    };
 
     // Transform the flat data into a hierarchical structure
     const processData = (data: EmissionNode[]): HierarchyDatum => {
@@ -181,7 +181,8 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       let currentAngle = 0;
       const angleScale = (2 * Math.PI) / 100; // Convert percentages to radians
 
-      data.forEach(sector => {
+      data.forEach((sector, sectorIdx) => {
+        const sectorColor = getSectorColor(sectorIdx);
         const sectorNode: HierarchyDatum = {
           id: sector.id,
           name: sector.name,
@@ -191,7 +192,9 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
           innerRadius: 0,
           outerRadius: radius * CENTER_RADIUS,
           children: [],
-          depth: 1
+          depth: 1,
+          color: sectorColor,
+          sectorIdx
         };
 
         if (sector.children) {
@@ -206,7 +209,9 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
               innerRadius: radius * MIDDLE_RING_START,
               outerRadius: radius * MIDDLE_RING_END,
               children: [],
-              depth: 2
+              depth: 2,
+              color: lighten(sectorColor, 0.35),
+              sectorIdx
             };
 
             if (subsector.children) {
@@ -220,7 +225,9 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
                   endAngle: subsubStartAngle + (subsubsector.share || 0) * angleScale,
                   innerRadius: radius * OUTER_RING_START,
                   outerRadius: radius * OUTER_RING_END,
-                  depth: 3
+                  depth: 3,
+                  color: lighten(sectorColor, 0.65),
+                  sectorIdx
                 };
                 subsubStartAngle = subsubNode.endAngle;
                 subsectorNode.children?.push(subsubNode);
@@ -735,14 +742,11 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
     }
 
     // Recursive function to render arcs
-    const renderArcs = (parent: d3.Selection<SVGGElement, unknown, null, undefined>, node: HierarchyDatum, parentSectorId?: string) => {
+    const renderArcs = (parent: d3.Selection<SVGGElement, unknown, null, undefined>, node: HierarchyDatum, parentColor?: string, sectorIdx?: number) => {
       const g = parent.append('g');
 
       // Draw this node's arc
       if (node.depth) {
-        // Determine the sector ID for color selection
-        const currentSectorId = node.depth === 1 ? node.id : parentSectorId;
-        
         g.append('path')
           .attr('d', getArc(node.depth)({
             startAngle: node.startAngle,
@@ -750,7 +754,7 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
             innerRadius: node.innerRadius,
             outerRadius: node.outerRadius
           }))
-          .attr('fill', getNodeColor(node, currentSectorId));
+          .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx));
 
         // Add center labels for main sectors
         if (node.depth === 1) {
@@ -768,7 +772,7 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
 
       // Recursively render children
       if (node.children) {
-        node.children.forEach(child => renderArcs(g, child, node.depth === 1 ? node.id : parentSectorId));
+        node.children.forEach(child => renderArcs(g, child, node.color, node.sectorIdx));
       }
     };
 

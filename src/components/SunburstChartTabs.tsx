@@ -6,6 +6,8 @@ import { EmissionNode } from '../lib/data/ghgEmissions';
 import { ghgEmissionsData } from '../lib/data/ghgEmissions';
 import { useRouter, usePathname, useParams } from 'next/navigation';
 import { addDocument, getDocuments, updateDocument, deleteDocument } from '../lib/firebase/firebaseUtils';
+import { ThemedDropdown } from '../app/components/ThemedDropdown';
+import { useTheme } from '../lib/contexts/ThemeContext';
 
 // Interface for flattened table data
 interface TableRow {
@@ -50,6 +52,8 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
   const [isMounted, setIsMounted] = useState(false);
 
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  const { currentTheme } = useTheme();
 
   useEffect(() => {
     setIsMounted(true);
@@ -331,7 +335,10 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg">
+    <div
+      className="bg-white rounded-lg shadow-lg"
+      style={{ fontFamily: currentTheme.typography.fontFamily.primary }}
+    >
       {/* Module Title and Duplicate Icon */}
       <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
         <div className="flex items-center gap-2">
@@ -403,23 +410,15 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
               <label htmlFor="location-select" className="text-sm font-medium text-gray-700">
                 Location:
               </label>
-              <select
-                id="location-select"
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={availableLocations.length === 0}
-              >
-                {availableLocations.length === 0 ? (
-                  <option value="">No locations</option>
-                ) : (
-                  availableLocations.map(location => (
-                    <option key={location} value={location}>
-                      {location}
-                    </option>
-                  ))
-                )}
-              </select>
+              <div className="flex-1 min-w-[180px]">
+                <ThemedDropdown
+                  label={undefined}
+                  options={availableLocations.length === 0 ? [{ value: '', label: 'No locations', disabled: true }] : availableLocations.map(loc => ({ value: loc, label: loc }))}
+                  value={selectedLocation}
+                  onChange={setSelectedLocation}
+                  minWidth="180px"
+                />
+              </div>
             </div>
 
             {/* Chart */}
