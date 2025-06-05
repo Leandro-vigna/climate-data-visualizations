@@ -8,9 +8,13 @@ import { useRouter, usePathname, useParams } from 'next/navigation';
 import { addDocument, getDocuments, updateDocument, deleteDocument } from '../lib/firebase/firebaseUtils';
 import { ThemedDropdown } from '../app/components/ThemedDropdown';
 import { useTheme } from '../lib/contexts/ThemeContext';
+import { saveAs } from 'file-saver';
+import { useAuth } from '../lib/hooks/useAuth';
+import Papa from 'papaparse';
 
 // Interface for flattened table data
 interface TableRow {
+  [key: string]: string | number | undefined;
   id: string;
   location: string;
   sector: string;
@@ -25,6 +29,7 @@ interface ChartVersion {
   name: string;
   tableData: TableRow[];
   labelOverrides: { [key: string]: 'radial' | 'curved' };
+  metadata?: Record<string, string>;
 }
 
 function generateVersionId() {
@@ -37,7 +42,7 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
   const params = useParams();
   const versionIdFromUrl = params?.versionId as string | undefined;
 
-  const [activeTab, setActiveTab] = useState<'chart' | 'data'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'data' | 'metadata'>('chart');
   const [selectedLocation, setSelectedLocation] = useState<string>('WORLD');
 
   // Loading state for versions
@@ -55,9 +60,40 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
 
   const { currentTheme } = useTheme();
 
+  const [metadata, setMetadata] = useState<Record<string, string>>({});
+
+  const { user } = useAuth();
+
+  const [currentVersion, setCurrentVersion] = useState<ChartVersion | null>(initialVersion || null);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Load chart state (metadata, tableData, labelOverrides) from localStorage or Firestore on mount and when currentVersion changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !currentVersion) return;
+    const saveKey = `sunburstChart_${user?.uid || 'guest'}_${currentVersion.id || 'default'}`;
+    const saved = localStorage.getItem(saveKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.metadata) setMetadata(parsed.metadata);
+        if (parsed.tableData) setTableData(parsed.tableData);
+        // Optionally restore labelOverrides if needed
+        return;
+      } catch (e) {
+        // ignore
+      }
+    }
+    // If not in localStorage, load from Firestore
+    getDocuments('sunburstVersions').then((versionsRaw) => {
+      const versions = versionsRaw as ChartVersion[];
+      const found = versions.find(v => v.id === currentVersion.id);
+      if (found && found.tableData) setTableData(found.tableData);
+      if (found && found.metadata) setMetadata(found.metadata);
+    });
+  }, [user, currentVersion?.id]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -105,22 +141,17 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
     return locations.sort();
   }, [tableData]);
 
-  // Find the active version by ID to avoid stale references
-  const currentVersion = useMemo(() => {
-    if (!chartVersions.length) return undefined;
-    const id = chartVersions[activeVersionIdx]?.id;
-    // Always return a new object reference to force re-render
-    return chartVersions.find(v => v.id === id) ? { ...chartVersions.find(v => v.id === id)! } : chartVersions[0];
-  }, [chartVersions, activeVersionIdx]);
-
-  // Use the current version's data for the chart
+  // Use the current in-memory tableData for the chart, not just the saved version
   const chartData = useMemo(() => {
-    if (!currentVersion || !currentVersion.tableData) {
+    if (!tableData || !tableData.length) {
       return [];
     }
-    const locationData = currentVersion.tableData.filter(row => row.location === selectedLocation);
-    return rebuildHierarchicalData(locationData);
-  }, [currentVersion, selectedLocation, tableData]);
+    const locationData = tableData.filter(row => row.location === selectedLocation);
+    const hierarchy = rebuildHierarchicalData(locationData);
+    console.log('locationData for', selectedLocation, locationData);
+    console.log('hierarchy for', selectedLocation, hierarchy);
+    return hierarchy;
+  }, [tableData, selectedLocation]);
 
   // Function to rebuild hierarchical data from table data
   function rebuildHierarchicalData(tableRows: TableRow[]): EmissionNode[] {
@@ -266,14 +297,14 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
 
   // When entering edit mode, initialize localLabelOverrides from current version
   const startEditMode = () => {
-    setLocalLabelOverrides({ ...(currentVersion?.labelOverrides || {}) });
+    setLocalLabelOverrides({ ...(initialVersion?.labelOverrides || {}) });
     setEditMode(true);
   };
 
   // When switching tabs or entering edit mode, initialize localLabelOverrides from current version
   useEffect(() => {
     if (editMode) {
-      setLocalLabelOverrides({ ...(currentVersion?.labelOverrides || {}) });
+      setLocalLabelOverrides({ ...(initialVersion?.labelOverrides || {}) });
     }
     // Do not reset localLabelOverrides on exiting edit mode
     // eslint-disable-next-line
@@ -328,7 +359,145 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
   console.log('tableData:', tableData);
   console.log('availableLocations:', availableLocations);
   console.log('selectedLocation:', selectedLocation);
-  console.log('Chart labelOverrides:', editMode ? localLabelOverrides : currentVersion?.labelOverrides);
+  console.log('Chart labelOverrides:', editMode ? localLabelOverrides : initialVersion?.labelOverrides);
+
+  // Helper to extract all unique section names from chartData
+  function extractSectionNames(nodes: EmissionNode[], parentNames: string[] = []): string[] {
+    let names: string[] = [];
+    nodes.forEach(node => {
+      const fullName = [...parentNames, node.name].join(' | ');
+      names.push(fullName);
+      if (node.children) {
+        names = names.concat(extractSectionNames(node.children, [...parentNames, node.name]));
+      }
+    });
+    return names;
+  }
+  const sectionNames = useMemo(() => extractSectionNames(chartData), [chartData]);
+
+  // Helper to download metadata as CSV
+  function downloadMetadataCSV() {
+    const rows = [['Section', 'Information']].concat(
+      sectionNames.map(name => [name, metadata[name] || ''])
+    );
+    const csv = rows.map(row => row.map(cell => '"' + (cell || '').replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    saveAs(blob, 'metadata.csv');
+  }
+
+  // Helper to download data table as CSV
+  function downloadDataTableCSV() {
+    if (!tableData.length) return;
+    const headers = Object.keys(tableData[0]);
+    const rows = [headers].concat(tableData.map(row => headers.map(h => String(row[h] ?? ''))));
+    const csv = rows.map(row => row.map(cell => '"' + cell.replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    saveAs(blob, 'data-table.csv');
+  }
+
+  // Helper to handle CSV upload
+  function handleDataTableUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (Array.isArray(results.data)) {
+          // Flexible header mapping
+          const headerMap: Record<string, string> = {};
+          if (results.meta && Array.isArray(results.meta.fields)) {
+            results.meta.fields.forEach((header: string) => {
+              const normalized = header
+                .toLowerCase()
+                .replace(/\s+/g, '')
+                .replace(/_/g, '');
+              if (normalized === 'location') headerMap[header] = 'location';
+              else if (normalized === 'sector') headerMap[header] = 'sector';
+              else if (normalized === 'subsector') headerMap[header] = 'subsector';
+              else if (normalized === 'subsubsector' || normalized === 'subsubsecto') headerMap[header] = 'subSubsector';
+              else if (normalized === 'id') headerMap[header] = 'id';
+              else if (normalized === 'value') headerMap[header] = 'value';
+              else headerMap[header] = header; // fallback: keep as is
+            });
+          }
+          const normalized = results.data.map((row: any, idx: number) => {
+            const newRow: any = {};
+            for (const key in row) {
+              if (!row.hasOwnProperty(key)) continue;
+              const mappedKey = headerMap[key] || key;
+              let value = row[key];
+              if (typeof value === 'string') {
+                value = value.trim();
+              }
+              newRow[mappedKey] = value;
+            }
+            // Ensure all required fields exist
+            newRow['id'] = newRow['id'] || `row_${idx}`;
+            newRow['location'] = (typeof newRow['location'] === 'string' ? newRow['location'].trim() : '');
+            newRow['sector'] = newRow['sector'] || '';
+            newRow['subsector'] = newRow['subsector'] || '';
+            newRow['subSubsector'] = newRow['subSubsector'] || '';
+            // Convert value to number
+            const rawValue = newRow['value'];
+            newRow['value'] = typeof rawValue === 'number' ? rawValue : Number(String(rawValue).replace(/,/g, '').trim()) || 0;
+            return newRow;
+          });
+          setTableData(normalized as TableRow[]);
+        }
+      },
+    });
+  }
+
+  // Add a new empty row
+  function addDataTableRow() {
+    if (!tableData.length) return;
+    const headers = Object.keys(tableData[0]);
+    const newRow: TableRow = {
+      id: `row_${tableData.length}`,
+      location: '',
+      sector: '',
+      subsector: '',
+      subSubsector: '',
+      value: 0,
+    };
+    headers.forEach(h => { if (!(h in newRow)) newRow[h] = ''; });
+    setTableData([...tableData, newRow]);
+  }
+
+  // Save all chart state to localStorage and Firebase
+  async function handleSaveAll() {
+    const saveKey = `sunburstChart_${user?.uid || 'guest'}_${currentVersion?.id || 'default'}`;
+    const saveData = {
+      metadata,
+      tableData,
+      labelOverrides: editMode ? localLabelOverrides : currentVersion?.labelOverrides || {},
+    };
+    // Save to localStorage
+    try {
+      localStorage.setItem(saveKey, JSON.stringify(saveData));
+    } catch (e) {
+      alert('Failed to save to localStorage.');
+    }
+    // Save to Firebase if user and version
+    if (user && currentVersion?.id) {
+      try {
+        await updateDocument('sunburstVersions', currentVersion.id, saveData);
+        alert('Changes saved to cloud and localStorage!');
+      } catch (e) {
+        alert('Failed to save to Firebase.');
+      }
+    } else {
+      alert('Changes saved to localStorage!');
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      window.tableData = tableData;
+    }
+  }, [tableData]);
 
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
@@ -339,6 +508,14 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
       className="bg-white rounded-lg shadow-lg"
       style={{ fontFamily: currentTheme.typography.fontFamily.primary }}
     >
+      <div className="flex justify-end p-4">
+        <button
+          className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
+          onClick={handleSaveAll}
+        >
+          Save Changes
+        </button>
+      </div>
       {/* Module Title and Duplicate Icon */}
       <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
         <div className="flex items-center gap-2">
@@ -380,23 +557,21 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
         <nav className="-mb-px flex">
           <button
             onClick={() => setActiveTab('chart')}
-            className={`w-1/2 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${
-              activeTab === 'chart'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'chart' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
           >
             Chart Visualization
           </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`w-1/2 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${
-              activeTab === 'data'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
+            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'data' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
           >
             Data Table
+          </button>
+          <button
+            onClick={() => setActiveTab('metadata')}
+            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'metadata' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+          >
+            Metadata
           </button>
         </nav>
       </div>
@@ -405,6 +580,22 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
       <div className="p-6">
         {activeTab === 'chart' && (
           <div>
+            {/* Title */}
+            <div className="mb-2">
+              <h2
+                className="text-2xl font-bold"
+                style={{
+                  color: currentTheme.colors.text,
+                  fontFamily: currentTheme.typography.fontFamily.primary,
+                  fontSize: currentTheme.typography.fontSize['2xl'],
+                  fontWeight: currentTheme.typography.fontWeight.bold,
+                  letterSpacing: '0.01em',
+                  lineHeight: 1.2,
+                }}
+              >
+                Global/National GHG Emissions by Sector
+              </h2>
+            </div>
             {/* Location Filter */}
             <div className="mb-6 flex items-center gap-4">
               <label htmlFor="location-select" className="text-sm font-medium text-gray-700">
@@ -453,7 +644,7 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
                       Save as New
                     </button>
                     {/* Restore Defaults Button */}
-                    {Object.keys(currentVersion?.labelOverrides || {}).length > 0 && (
+                    {Object.keys(initialVersion?.labelOverrides || {}).length > 0 && (
                       <button
                         className="flex items-center gap-1 px-2 py-1 text-sm text-yellow-600 hover:text-yellow-800"
                         onClick={handleRestoreDefaults}
@@ -475,13 +666,14 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
                 )}
               </div>
               <div className="overflow-x-auto max-w-full">
-                {activeVersionIdx !== -1 && currentVersion ? (
+                {activeVersionIdx !== -1 && initialVersion ? (
                   <GHGEmissionsSunburst
-                    key={currentVersion.id + '-' + (editMode ? 'edit' : 'view') + '-' + JSON.stringify(editMode ? localLabelOverrides : currentVersion.labelOverrides)}
+                    key={initialVersion.id + '-' + (editMode ? 'edit' : 'view') + '-' + JSON.stringify(editMode ? localLabelOverrides : initialVersion.labelOverrides)}
                     data={chartData}
-                    labelOverrides={editMode ? localLabelOverrides : currentVersion.labelOverrides}
+                    labelOverrides={editMode ? localLabelOverrides : initialVersion.labelOverrides}
                     editMode={editMode}
                     onLabelOverridesChange={editMode ? setLocalLabelOverrides : undefined}
+                    metadata={metadata}
                   />
                 ) : (
                   !loading && <div className="text-center text-red-500">Chart version not found or not loaded.</div>
@@ -493,58 +685,104 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
 
         {activeTab === 'data' && (
           <div className="overflow-x-auto">
+            <div className="flex justify-end mb-2 gap-2">
+              <button
+                className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition"
+                onClick={downloadDataTableCSV}
+              >
+                Download CSV
+              </button>
+              <label className="bg-gray-200 text-gray-700 px-4 py-2 rounded shadow cursor-pointer hover:bg-gray-300 transition">
+                Upload CSV
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleDataTableUpload}
+                />
+              </label>
+            </div>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Location
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Sector
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Subsector
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Sub-subsector
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Value (%)
-                  </th>
+                  {tableData.length > 0 && Object.keys(tableData[0]).map((header) => (
+                    <th key={header} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{header}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {tableData.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50">
+                {tableData.map((row, rowIdx) => (
+                  <tr key={rowIdx}>
+                    {Object.keys(row).map((col, colIdx) => (
+                      <td key={colIdx} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <input
+                          className="w-full border px-2 py-1 rounded"
+                          value={row[col] ?? ''}
+                          onChange={e => {
+                            const newTable = [...tableData];
+                            newTable[rowIdx] = { ...newTable[rowIdx], [col]: e.target.value };
+                            setTableData(newTable);
+                          }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex justify-end mt-2">
+              <button
+                className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
+                onClick={addDataTableRow}
+              >
+                Add Row
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'metadata' && (
+          <div className="overflow-x-auto">
+            <div className="flex justify-end mb-2">
+              <button
+                className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition"
+                onClick={downloadMetadataCSV}
+              >
+                Download CSV
+              </button>
+            </div>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Section</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Information</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {sectionNames.map((name, idx) => (
+                  <tr key={name}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {/* <input
-                        type="text"
-                        value={row.location}
-                        onChange={(e) => handleLocationChange(row.id, e.target.value)}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      /> */}
-                      {row.location}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {row.sector}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.subsector}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {row.subSubsector}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {/* <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="100"
-                        value={row.value}
-                        onChange={(e) => handleValueChange(row.id, parseFloat(e.target.value) || 0)}
-                        className="w-20 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      /> */}
-                      {row.value}
+                      <textarea
+                        className="w-full border px-2 py-1 rounded"
+                        value={metadata[name] || ''}
+                        onChange={e => setMetadata(m => ({ ...m, [name]: e.target.value }))}
+                        rows={2}
+                        onPaste={idx === 0 ? (e => {
+                          const text = e.clipboardData.getData('text');
+                          if (text.includes('\n')) {
+                            e.preventDefault();
+                            const lines = text.replace(/\r/g, '').split('\n');
+                            setMetadata(m => {
+                              const updated = { ...m };
+                              for (let i = 0; i < lines.length && i < sectionNames.length; i++) {
+                                updated[sectionNames[i]] = lines[i];
+                              }
+                              return updated;
+                            });
+                          }
+                        }) : undefined}
+                      />
                     </td>
                   </tr>
                 ))}

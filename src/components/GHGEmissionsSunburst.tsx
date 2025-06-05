@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } f
 import * as d3 from 'd3';
 import { EmissionNode } from '../lib/data/ghgEmissions';
 import { useTheme } from '../lib/contexts/ThemeContext';
+import ThemedTooltip from './ThemedTooltip';
 
 interface GHGEmissionsSunburstProps {
   data: EmissionNode[];
@@ -12,6 +13,7 @@ interface GHGEmissionsSunburstProps {
   onLabelOverridesChange?: (overrides: { [key: string]: 'radial' | 'curved' }) => void;
   onSaveOverrides?: (overrides: { [key: string]: 'radial' | 'curved' }) => void;
   onRestoreDefaults?: () => void;
+  metadata?: Record<string, string>;
 }
 
 const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
@@ -20,13 +22,21 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
   editMode = false,
   onLabelOverridesChange,
   onSaveOverrides,
-  onRestoreDefaults
+  onRestoreDefaults,
+  metadata = {},
 }: GHGEmissionsSunburstProps, ref) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [localLabelOverrides, setLocalLabelOverrides] = useState<{ [key: string]: 'radial' | 'curved' }>({});
   const labelOverrides = editMode ? localLabelOverrides : (propLabelOverrides || {});
   const { currentTheme } = useTheme();
   const categorical = currentTheme.colors.categorical as string[];
+  const [hovered, setHovered] = useState<{
+    name: string;
+    value: number;
+    info: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Expose a method to get the current localLabelOverrides
   useImperativeHandle(ref, () => ({
@@ -93,6 +103,18 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
     if (onRestoreDefaults) {
       onRestoreDefaults();
     }
+  }
+
+  // Helper to get full node name (e.g., Energy | Transport | Aviation)
+  function getFullNodeName(node: any): string {
+    // Walk up the parent chain if available, otherwise fallback to name
+    let names = [];
+    let n = node;
+    while (n) {
+      if (n.name) names.unshift(n.name);
+      n = n.parent || n.__parent;
+    }
+    return names.join(' | ');
   }
 
   useEffect(() => {
@@ -178,6 +200,13 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         outerRadius: radius
       };
 
+      function setParent(child: any, parent: any) {
+        child.parent = parent;
+        if (child.children) {
+          child.children.forEach((c: any) => setParent(c, child));
+        }
+      }
+
       let currentAngle = 0;
       const angleScale = (2 * Math.PI) / 100; // Convert percentages to radians
 
@@ -242,6 +271,9 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         currentAngle = sectorNode.endAngle;
         root.children?.push(sectorNode);
       });
+
+      // Set parent references recursively
+      root.children?.forEach((c: any) => setParent(c, root));
 
       return root;
     };
@@ -747,14 +779,60 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
 
       // Draw this node's arc
       if (node.depth) {
-        g.append('path')
+        const arcPath = g.append('path')
           .attr('d', getArc(node.depth)({
-            startAngle: node.startAngle,
-            endAngle: node.endAngle,
-            innerRadius: node.innerRadius,
-            outerRadius: node.outerRadius
+            startAngle: node.startAngle ?? 0,
+            endAngle: node.endAngle ?? 0,
+            innerRadius: node.innerRadius ?? 0,
+            outerRadius: node.outerRadius ?? 0
           }))
-          .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx));
+          .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx))
+          .on('mousemove', (event) => {
+            console.log('[TOOLTIP ARC HOVER]', node);
+            const offsetY = 18;
+            const key = getFullNodeName(node);
+            const leafKey = (node.name || '').trim().toLowerCase();
+            const normKey = key.trim().toLowerCase();
+            let info = '';
+            // Try full path match first
+            for (const metaKey in metadata) {
+              if (metaKey.trim().toLowerCase() === normKey) {
+                info = metadata[metaKey];
+                break;
+              }
+            }
+            // If not found, try leaf node name
+            if (!info) {
+              for (const metaKey in metadata) {
+                if (metaKey.trim().toLowerCase() === leafKey) {
+                  info = metadata[metaKey];
+                  break;
+                }
+              }
+            }
+            // Debug log for tooltip info lookup
+            console.log('[TOOLTIP DEBUG]', {
+              fullKey: key,
+              leafKey,
+              metadataKeys: Object.keys(metadata),
+              info
+            });
+            setHovered({
+              name: key,
+              value: typeof node.share === 'number' ? node.share : 0,
+              info,
+              x: event.clientX,
+              y: event.clientY - offsetY
+            });
+            d3.select(event.currentTarget)
+              .attr('fill', lighten(node.color || getNodeColor(node, parentColor, sectorIdx), 0.25));
+          })
+          .on('mouseleave', (event) => {
+            setHovered(null);
+            // Restore arc color
+            d3.select(event.currentTarget)
+              .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx));
+          });
 
         // Add center labels for main sectors
         if (node.depth === 1) {
@@ -774,12 +852,15 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       if (node.children) {
         node.children.forEach(child => renderArcs(g, child, node.color, node.sectorIdx));
       }
+
+      // Set pointer-events: none on all label text elements
+      g.selectAll('text').attr('pointer-events', 'none');
     };
 
     // Start rendering from root
     renderArcs(svg, hierarchicalData, undefined);
 
-  }, [data, editMode, labelOverrides]);
+  }, [data, editMode, labelOverrides, metadata]);
 
   return (
     <div className={`relative ${editMode ? 'border-4 border-blue-400' : ''} flex flex-col items-center bg-white rounded-lg shadow-lg`}>
@@ -791,6 +872,15 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       <div className={editMode ? 'pt-8 w-full flex justify-center' : ''}>
         <svg ref={svgRef} />
       </div>
+      {hovered && (
+        <ThemedTooltip
+          x={hovered.x}
+          y={hovered.y}
+          name={hovered.name}
+          value={typeof hovered.value === 'number' ? hovered.value.toFixed(2) + '%' : ''}
+          info={hovered.info}
+        />
+      )}
     </div>
   );
 });
