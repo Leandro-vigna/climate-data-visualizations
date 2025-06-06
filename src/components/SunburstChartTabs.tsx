@@ -11,6 +11,7 @@ import { useTheme } from '../lib/contexts/ThemeContext';
 import { saveAs } from 'file-saver';
 import { useAuth } from '../lib/hooks/useAuth';
 import Papa from 'papaparse';
+import { DownloadIcon, ShareIcon, InfoIcon } from '../app/components/Icons';
 
 // Interface for flattened table data
 interface TableRow {
@@ -36,13 +37,141 @@ function generateVersionId() {
   return 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Utility to flatten hierarchical EmissionNode[] to TableRow[]
+function flattenEmissionNodes(
+  nodes: EmissionNode[],
+  location: string = 'WORLD',
+  parentSector: string = '',
+  parentSubsector: string = ''
+): TableRow[] {
+  let rows: TableRow[] = [];
+  nodes.forEach((node) => {
+    if (node.children && node.children.length > 0) {
+      if (!parentSector) {
+        // Top-level sector
+        rows.push({
+          id: `${location}_${node.name}`,
+          location,
+          sector: node.name,
+          subsector: '',
+          subSubsector: '',
+          value: node.share,
+        });
+        rows = rows.concat(flattenEmissionNodes(node.children, location, node.name, ''));
+      } else if (!parentSubsector) {
+        // Subsector
+        rows.push({
+          id: `${location}_${parentSector}_${node.name}`,
+          location,
+          sector: parentSector,
+          subsector: node.name,
+          subSubsector: '',
+          value: node.share,
+        });
+        rows = rows.concat(flattenEmissionNodes(node.children, location, parentSector, node.name));
+      } else {
+        // Sub-subsector parent
+        // Should not happen in this data, but handle for completeness
+        rows = rows.concat(flattenEmissionNodes(node.children, location, parentSector, parentSubsector));
+      }
+    } else {
+      // Leaf node
+      if (parentSector && parentSubsector) {
+        rows.push({
+          id: `${location}_${parentSector}_${parentSubsector}_${node.name}`,
+          location,
+          sector: parentSector,
+          subsector: parentSubsector,
+          subSubsector: node.name,
+          value: node.share,
+        });
+      } else if (parentSector) {
+        rows.push({
+          id: `${location}_${parentSector}_${node.name}`,
+          location,
+          sector: parentSector,
+          subsector: node.name,
+          subSubsector: '',
+          value: node.share,
+        });
+      } else {
+        rows.push({
+          id: `${location}_${node.name}`,
+          location,
+          sector: node.name,
+          subsector: '',
+          subSubsector: '',
+          value: node.share,
+        });
+      }
+    }
+  });
+  return rows;
+}
+
+// Add this React component for the Climate Watch logo SVG
+function ClimateWatchLogo({ className = '', style = {} }) {
+  return (
+    <svg
+      width="240"
+      height="48"
+      viewBox="0 0 540 108"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={style}
+    >
+      <text x="0" y="80" fontFamily="Inter, Arial, sans-serif" fontWeight="bold" fontSize="96" fill="#484942">CLIMATE</text>
+      <text x="370" y="80" fontFamily="Inter, Arial, sans-serif" fontWeight="normal" fontSize="96" fill="#484942">WATCH</text>
+    </svg>
+  );
+}
+
+// Add simple SVGs for Embed and Image if not present
+function EmbedIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width={16} height={16} fill="none" viewBox="0 0 16 16" {...props}>
+      <path d="M6 4l-4 4 4 4M10 4l4 4-4 4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function ImageIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width={16} height={16} fill="none" viewBox="0 0 16 16" {...props}>
+      <rect x={2} y={2} width={12} height={12} rx={2} stroke="currentColor" strokeWidth={1.5}/>
+      <circle cx={6} cy={6} r={1} fill="currentColor" />
+      <path d="M3 13l3.5-4.5a1 1 0 0 1 1.6 0L13 13" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// Add a new ImageDownloadIcon for image download
+function ImageDownloadIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width={16} height={16} fill="none" viewBox="0 0 16 16" {...props}>
+      <rect x={2} y={2} width={12} height={12} rx={2} stroke="currentColor" strokeWidth={1.5}/>
+      <path d="M8 5v4m0 0l2-2m-2 2l-2-2" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+// Update CopyEmbedUrlIcon to match the classic chain link icon from the provided image
+function CopyEmbedUrlIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width={20} height={20} fill="none" viewBox="0 0 20 20" {...props}>
+      <path d="M7.5 12.5l5-5m-2.5-2.5a3.5 3.5 0 0 1 5 5l-2 2m-5 5a3.5 3.5 0 0 1-5-5l2-2" stroke="#0E2B3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
 export default function SunburstChartTabs({ initialVersion }: { initialVersion?: ChartVersion }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useParams();
   const versionIdFromUrl = params?.versionId as string | undefined;
 
-  const [activeTab, setActiveTab] = useState<'chart' | 'data' | 'metadata'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'data' | 'metadata' | 'info'>('chart');
   const [selectedLocation, setSelectedLocation] = useState<string>('WORLD');
 
   // Loading state for versions
@@ -65,6 +194,9 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
   const { user } = useAuth();
 
   const [currentVersion, setCurrentVersion] = useState<ChartVersion | null>(initialVersion || null);
+
+  const [editMode, setEditMode] = useState(false);
+  const [localLabelOverrides, setLocalLabelOverrides] = useState<{ [key: string]: 'radial' | 'curved' }>({});
 
   useEffect(() => {
     setIsMounted(true);
@@ -92,6 +224,13 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
       const found = versions.find(v => v.id === currentVersion.id);
       if (found && found.tableData) setTableData(found.tableData);
       if (found && found.metadata) setMetadata(found.metadata);
+      // If not found in Firestore, set defaults
+      if ((!found || !found.tableData) && (!saved)) {
+        setTableData(flattenEmissionNodes(ghgEmissionsData));
+      }
+      if ((!found || !found.metadata) && (!saved)) {
+        setMetadata({});
+      }
     });
   }, [user, currentVersion?.id]);
 
@@ -292,9 +431,6 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
     });
   }
 
-  const [editMode, setEditMode] = useState(false);
-  const [localLabelOverrides, setLocalLabelOverrides] = useState<{ [key: string]: 'radial' | 'curved' }>({});
-
   // When entering edit mode, initialize localLabelOverrides from current version
   const startEditMode = () => {
     setLocalLabelOverrides({ ...(initialVersion?.labelOverrides || {}) });
@@ -327,11 +463,6 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
       setEditMode(false);
     });
   }
-
-  // Save as new: prompt for version name and create a new version
-  const handleSaveAsNew = () => {
-    setShowSavePrompt(true);
-  };
 
   // Delete a version by index (except Default)
   async function handleDeleteVersion(idx: number) {
@@ -499,87 +630,134 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
     }
   }, [tableData]);
 
+  // Add Escape key handler to exit edit mode
+  useEffect(() => {
+    if (!editMode) return;
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setEditMode(false);
+        setLocalLabelOverrides({ ...(initialVersion?.labelOverrides || {}) });
+      }
+    }
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [editMode, initialVersion]);
+
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
   }
 
   return (
     <div
-      className="bg-white rounded-lg shadow-lg"
+      className="bg-white rounded-lg shadow-lg relative pb-12"
       style={{ fontFamily: currentTheme.typography.fontFamily.primary }}
     >
-      <div className="flex justify-end p-4">
-        <button
-          className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
-          onClick={handleSaveAll}
-        >
-          Save Changes
-        </button>
-      </div>
-      {/* Module Title and Duplicate Icon */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold">Sunburst Chart</h2>
-          <button
-            className="ml-2 text-gray-500 hover:text-blue-600"
-            title="Duplicate chart"
-            onClick={handleDuplicateVersion}
-          >
-            {/* Duplicate Icon (Squares) */}
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" /><rect x="3" y="3" width="13" height="13" rx="2" /></svg>
-          </button>
-        </div>
-        {/* Version Tabs */}
-        <div className="flex gap-2">
-          {chartVersions.map((v, idx) => (
-            <div key={v.id} className="flex items-center">
-              <button
-                className={`px-3 py-1 rounded ${idx === activeVersionIdx ? 'bg-blue-100 text-blue-700 font-semibold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                onClick={() => handleTabSwitch(idx)}
-              >
-                {v.name}
-              </button>
-              {idx !== 0 && (
-                <button
-                  className="ml-1 text-xs text-red-500 hover:text-red-700"
-                  title="Delete this version"
-                  onClick={() => handleDeleteVersion(idx)}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex">
+      <div className="border-b border-gray-200 bg-white">
+        <nav className="flex gap-2 pl-6 pt-2 items-center">
+          {[
+            { key: 'chart', label: 'Chart Visualization' },
+            { key: 'data', label: 'Data Table' },
+            { key: 'metadata', label: 'Metadata' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as any)}
+              className={`relative px-4 py-2 text-base font-medium focus:outline-none transition-colors
+                ${activeTab === tab.key ? 'text-[#0E2B3E] border-b-4 border-yellow-400 bg-white font-bold' : 'text-gray-500 hover:text-[#0E2B3E]'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          {/* Info tab as icon with tooltip */}
           <button
-            onClick={() => setActiveTab('chart')}
-            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'chart' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-          >
-            Chart Visualization
+            onClick={() => setActiveTab('info')}
+            className={`relative px-4 py-2 text-base font-medium focus:outline-none transition-colors flex items-center justify-center
+              ${activeTab === 'info' ? 'text-[#0E2B3E] border-b-4 border-yellow-400 bg-white font-bold' : 'text-gray-500 hover:text-[#0E2B3E]'}`}
+            aria-label="Information"
+            >
+            <div className="group relative flex items-center">
+              <InfoIcon className="w-5 h-5" style={{ color: '#0E2B3E' }} />
+              <span className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0E2B3E] text-white text-[15px] font-bold rounded px-4 py-2 opacity-0 group-hover:opacity-100 transition pointer-events-none z-10 shadow-lg">
+                Information
+                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-[#0E2B3E]" />
+              </span>
+            </div>
           </button>
+          {/* Spacer */}
+          <div className="flex-1" />
+          {/* Edit icon button */}
           <button
-            onClick={() => setActiveTab('data')}
-            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'data' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+            onClick={startEditMode}
+            className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 transition mr-2"
+            aria-label="Edit"
           >
-            Data Table
+            <svg width={20} height={20} fill="none" viewBox="0 0 20 20">
+              <path d="M14.7 3.3a1 1 0 0 1 1.4 1.4l-8.5 8.5-2 0.6 0.6-2 8.5-8.5z" stroke="#0E2B3E" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </button>
-          <button
-            onClick={() => setActiveTab('metadata')}
-            className={`w-1/3 py-4 px-6 text-sm font-medium text-center border-b-2 transition-colors ${activeTab === 'metadata' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-          >
-            Metadata
-          </button>
+          {/* New icon buttons with tooltips, no box, spaced evenly, brand color */}
+          <div className="flex items-center gap-4">
+            <div className="group relative">
+              <button className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 transition" aria-label="Download data">
+                <DownloadIcon className="w-5 h-5" style={{ color: '#0E2B3E' }} />
+              </button>
+              <span className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0E2B3E] text-white text-[15px] font-bold rounded px-4 py-2 opacity-0 group-hover:opacity-100 transition pointer-events-none z-10 shadow-lg">
+                Download data
+                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-[#0E2B3E]" />
+              </span>
+            </div>
+            <div className="group relative">
+              <button className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 transition" aria-label="Download image">
+                <ImageIcon className="w-5 h-5" style={{ color: '#0E2B3E' }} />
+              </button>
+              <span className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0E2B3E] text-white text-[15px] font-bold rounded px-4 py-2 opacity-0 group-hover:opacity-100 transition pointer-events-none z-10 shadow-lg">
+                Download image
+                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-[#0E2B3E]" />
+              </span>
+            </div>
+            <div className="group relative">
+              <button className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 transition" aria-label="Copy embed URL">
+                <CopyEmbedUrlIcon className="w-5 h-5" style={{ color: '#0E2B3E' }} />
+              </button>
+              <span className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0E2B3E] text-white text-[15px] font-bold rounded px-4 py-2 opacity-0 group-hover:opacity-100 transition pointer-events-none z-10 shadow-lg">
+                Copy embed URL
+                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-[#0E2B3E]" />
+              </span>
+            </div>
+            <div className="group relative">
+              <button className="w-10 h-10 flex items-center justify-center hover:bg-blue-50 transition" aria-label="Copy embed code">
+                <EmbedIcon className="w-5 h-5" style={{ color: '#0E2B3E' }} />
+              </button>
+              <span className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap bg-[#0E2B3E] text-white text-[15px] font-bold rounded px-4 py-2 opacity-0 group-hover:opacity-100 transition pointer-events-none z-10 shadow-lg">
+                Copy embed code
+                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-[#0E2B3E]" />
+              </span>
+            </div>
+          </div>
         </nav>
       </div>
-
       {/* Tab Content */}
       <div className="p-6">
         {activeTab === 'chart' && (
           <div>
+            {/* Edit Mode Controls */}
+            {editMode && (
+              <div className="flex gap-2 mb-4 justify-end">
+                <button
+                  className="px-4 py-2 rounded bg-gray-200 text-[#0E2B3E] font-bold hover:bg-gray-300 transition"
+                  onClick={() => { setEditMode(false); setLocalLabelOverrides({ ...(initialVersion?.labelOverrides || {}) }); }}
+                >
+                  Restore Default
+                </button>
+                <button
+                  className="px-4 py-2 rounded bg-[#FFC300] text-[#0E2B3E] font-bold hover:bg-yellow-400 transition"
+                  onClick={handleSaveInPlace}
+                >
+                  Save
+                </button>
+              </div>
+            )}
             {/* Title */}
             <div className="mb-2">
               <h2
@@ -601,70 +779,19 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
               <label htmlFor="location-select" className="text-sm font-medium text-gray-700">
                 Location:
               </label>
-              <div className="flex-1 min-w-[180px]">
+              <div className="flex-1 min-w-[240px] max-w-xs">
                 <ThemedDropdown
                   label={undefined}
                   options={availableLocations.length === 0 ? [{ value: '', label: 'No locations', disabled: true }] : availableLocations.map(loc => ({ value: loc, label: loc }))}
                   value={selectedLocation}
                   onChange={setSelectedLocation}
-                  minWidth="180px"
+                  minWidth="240px"
                 />
               </div>
             </div>
 
             {/* Chart */}
             <div className="relative w-full">
-              {/* Edit controls */}
-              <div className="flex w-full justify-end p-2 gap-2">
-                {!editMode ? (
-                  <button
-                    className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-blue-600"
-                    onClick={startEditMode}
-                    title="Edit chart labels"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.1 2.1 0 1 1 2.97 2.97L7.5 18.79l-4 1 1-4 14.362-14.303z" /></svg>
-                    Edit
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className="flex items-center gap-1 px-2 py-1 text-sm text-green-600 hover:text-green-800"
-                      onClick={handleSaveInPlace}
-                      title="Save changes to this version"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                      Save
-                    </button>
-                    <button
-                      className="flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-800"
-                      onClick={handleSaveAsNew}
-                      title="Save as new version"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 12h8M12 8v8" /></svg>
-                      Save as New
-                    </button>
-                    {/* Restore Defaults Button */}
-                    {Object.keys(initialVersion?.labelOverrides || {}).length > 0 && (
-                      <button
-                        className="flex items-center gap-1 px-2 py-1 text-sm text-yellow-600 hover:text-yellow-800"
-                        onClick={handleRestoreDefaults}
-                        title="Restore default chart (remove all label edits)"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                        Restore Defaults
-                      </button>
-                    )}
-                    <button
-                      className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-red-600"
-                      onClick={() => { setEditMode(false); setLocalLabelOverrides({}); }}
-                      title="Cancel edit mode"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                      Cancel
-                    </button>
-                  </>
-                )}
-              </div>
               <div className="overflow-x-auto max-w-full">
                 {activeVersionIdx !== -1 && initialVersion ? (
                   <GHGEmissionsSunburst
@@ -791,6 +918,47 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
           </div>
         )}
 
+        {activeTab === 'info' && (
+          <div className="max-w-2xl mx-auto p-0">
+            <h2 className="text-2xl font-bold mb-2 text-gray-900">Climate Watch Historical GHG Emissions</h2>
+            <div className="mb-2">
+              <span className="font-bold">Title:</span> Climate Watch Historical Country Greenhouse Gas Emissions Data
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Date of Content:</span> 1990-2022
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Source Organization:</span> World Resources Institute
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Summary:</span> Historical country-level and sectoral GHG emissions data (1990-2022)
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Description:</span> Climate Watch Historical Emissions data contains sector-level greenhouse gas (GHG) emissions data for 194 countries and the European Union for the period 1990-2022, including emissions of the six major GHGs from most major sources and sinks. Non-CO2 emissions are expressed in CO2 equivalents using 100-year global warming potential values from the IPCC Fourth Assessment Report.<br/>
+              Population and GDP (constant 2015 US$) values are extracted from the World Bank Databank Development Indicators.<br/>
+              The <a href="#" className="text-blue-600 underline hover:text-blue-800">technical note is available here</a>.
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Geographic Coverage:</span> Global
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Cautions:</span> Climate Watch Historical GHG Emissions data (previously published through CAIT Climate Data Explorer) are derived from several sources. Any use of the Land-Use Change and Forestry or Agriculture indicator should be cited as FAO 2024, FAOSTAT Emissions Database. Any use of GHG emissions from fuel combustion data should be cited as GHG Emissions from Fuel Combustion, OECD/IEA, 2024. As of March 2020, emissions from European Union (27) for all years no longer include emissions from United Kingdom on Climate Watch.
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Read More:</span> <a href="https://www.climatewatchdata.org/ghg-emissions" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">https://www.climatewatchdata.org/ghg-emissions</a>
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Summary of Licenses:</span> Creative Commons Attribution-NonCommercial 4.0 International license
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Citation:</span> Climate Watch Historical GHG Emissions. 2025. Washington, DC: World Resources Institute. Available online at: <a href="https://www.climatewatchdata.org/ghg-emissions" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">https://www.climatewatchdata.org/ghg-emissions</a>
+            </div>
+            <div className="mb-2">
+              <span className="font-bold">Terms of Service Link:</span> <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">https://creativecommons.org/licenses/by/4.0/</a>
+            </div>
+          </div>
+        )}
+
         {/* Save Version Prompt Modal */}
         {showSavePrompt && (
           <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-30 z-50">
@@ -809,6 +977,37 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
             </div>
           </div>
         )}
+      </div>
+      {/* Footer: Source link and logo */}
+      <div className="flex items-end justify-between w-full px-6 pb-0 text-xs text-gray-500">
+        <div>
+          Source:{' '}
+          <a
+            href="https://www.climatewatchdata.org/ghg-emissions"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline font-semibold"
+          >
+            Climate Watch
+          </a>
+          <br />
+          Visualization created by{' '}
+          <a
+            href="https://www.linkedin.com/in/leandrovigna/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:underline font-semibold"
+          >
+            Leandro Vigna
+          </a>
+        </div>
+        <a href="https://www.climatewatchdata.org/" target="_blank" rel="noopener noreferrer">
+          <img
+            src="/climatewatch-logo.png"
+            alt="Climate Watch Logo"
+            style={{ width: 140, height: 'auto', display: 'block' }}
+          />
+        </a>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useRef, useLayoutEffect, useState } from 'react';
+import React from 'react';
 import { useTheme } from '../lib/contexts/ThemeContext';
 
 interface ThemedTooltipProps {
@@ -9,11 +9,11 @@ interface ThemedTooltipProps {
   info: string;
 }
 
-const POINTER_SIZE = 12;
+const POINTER_HEIGHT = 12;
+const CURSOR_GAP = 5;
 
 export default function ThemedTooltip({ x, y, name, value, info }: ThemedTooltipProps) {
   const { currentTheme } = useTheme();
-  // Tooltip style for Climate Watch
   const bg = currentTheme.name === 'Climate Watch'
     ? '#0A2239'
     : currentTheme.colors.primaryDark || currentTheme.colors.primary || '#222';
@@ -24,30 +24,23 @@ export default function ThemedTooltip({ x, y, name, value, info }: ThemedTooltip
   const infoFontSize = currentTheme.typography.fontSize.sm;
   const boxShadow = '0 4px 16px 0 rgba(0,0,0,0.18)';
   const tooltipWidth = 280;
-  const pointerHeight = 12;
-  const gap = 5;
-  const tooltipRef = useRef<HTMLDivElement>(null);
-  const [measuredHeight, setMeasuredHeight] = useState<number>(80); // fallback
 
-  useLayoutEffect(() => {
-    if (tooltipRef.current) {
-      setMeasuredHeight(tooltipRef.current.offsetHeight);
-    }
-  }, [name, value, info]);
-
-  const style: React.CSSProperties = {
+  // The anchor is at the cursor (x, y), but shift the tooltip up so the pointer's tip is at the cursor, plus a gap
+  const anchorStyle: React.CSSProperties = {
     position: 'fixed',
-    left: x - tooltipWidth / 2,
-    top: y - measuredHeight - pointerHeight - gap,
-    width: tooltipWidth,
+    left: x,
+    top: y,
     zIndex: 1000,
     pointerEvents: 'none',
-    fontFamily,
+    transform: `translate(-50%, calc(-100% - ${POINTER_HEIGHT + CURSOR_GAP}px))`, // center horizontally, shift up with gap
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
   };
+
   return (
-    <div style={style}>
+    <div style={anchorStyle}>
       <div
-        ref={tooltipRef}
         style={{
           background: typeof bg === 'string' ? bg : '#222',
           color: textColor,
@@ -61,6 +54,8 @@ export default function ThemedTooltip({ x, y, name, value, info }: ThemedTooltip
           lineHeight: 1.4,
           position: 'relative',
           textAlign: 'center',
+          fontFamily,
+          marginBottom: 0,
         }}
       >
         <div style={{ fontWeight: 700, fontSize: fontSize, marginBottom: 4 }}>
@@ -74,13 +69,13 @@ export default function ThemedTooltip({ x, y, name, value, info }: ThemedTooltip
           style={{
             position: 'absolute',
             left: '50%',
-            bottom: -pointerHeight,
+            bottom: -POINTER_HEIGHT,
             transform: 'translateX(-50%)',
             width: 0,
             height: 0,
-            borderLeft: `${pointerHeight}px solid transparent`,
-            borderRight: `${pointerHeight}px solid transparent`,
-            borderTop: `${pointerHeight}px solid ${typeof bg === 'string' ? bg : '#222'}`,
+            borderLeft: `${POINTER_HEIGHT}px solid transparent`,
+            borderRight: `${POINTER_HEIGHT}px solid transparent`,
+            borderTop: `${POINTER_HEIGHT}px solid ${typeof bg === 'string' ? bg : '#222'}`,
           }}
         />
       </div>

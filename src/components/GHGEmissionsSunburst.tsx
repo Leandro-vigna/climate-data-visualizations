@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 import * as d3 from 'd3';
 import { EmissionNode } from '../lib/data/ghgEmissions';
 import { useTheme } from '../lib/contexts/ThemeContext';
@@ -32,29 +32,14 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
   const categorical = currentTheme.colors.categorical as string[];
   const [hovered, setHovered] = useState<{
     name: string;
-    value: number;
+    value: string;
     info: string;
     x: number;
     y: number;
   } | null>(null);
 
-  // Expose a method to get the current localLabelOverrides
-  useImperativeHandle(ref, () => ({
-    getLabelOverrides: () => localLabelOverrides,
-    resetLocalLabelOverrides: () => setLocalLabelOverrides({}),
-    setLocalLabelOverrides: (overrides: { [key: string]: 'radial' | 'curved' }) => setLocalLabelOverrides(overrides),
-  }), [localLabelOverrides]);
-
-  // Only set localLabelOverrides when entering edit mode
-  useEffect(() => {
-    if (editMode && propLabelOverrides) {
-      setLocalLabelOverrides(propLabelOverrides);
-    }
-    // Do NOT reset localLabelOverrides on exit, let it be ignored
-  }, [editMode]);
-
   // Helper to lighten a hex color by a given percent (0-1)
-  function lighten(hex: string, percent: number): string {
+  const lighten = useCallback((hex: string, percent: number): string => {
     let c = hex.replace('#', '');
     if (c.length === 3) c = c.split('').map(x => x + x).join('');
     const num = parseInt(c, 16);
@@ -63,15 +48,15 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
     let b = (num & 0x0000FF) + Math.round((255 - (num & 0x0000FF)) * percent);
     r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
     return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-  }
+  }, []);
 
   // Map sector index to categorical color
-  function getSectorColor(index: number): string {
+  const getSectorColor = useCallback((index: number): string => {
     return categorical[index % categorical.length];
-  }
+  }, [categorical]);
 
   // Assign color to node based on depth and parent color
-  function getNodeColor(node: any, parentColor?: string, sectorIndex?: number): string {
+  const getNodeColor = useCallback((node: any, parentColor?: string, sectorIndex?: number): string => {
     if (node.depth === 1) {
       return getSectorColor(sectorIndex ?? 0);
     } else if (node.depth === 2) {
@@ -80,34 +65,10 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       return lighten(parentColor || '#cccccc', 0.65);
     }
     return '#CBD5E1';
-  }
-
-  // Helper to toggle a label's alignment override
-  function handleLabelDoubleClick(labelId: string) {
-    if (!editMode) return;
-    const current = labelOverrides[labelId];
-    const next: 'radial' | 'curved' = current === 'curved' ? 'radial' : 'curved';
-    const updated: { [key: string]: 'radial' | 'curved' } = { ...labelOverrides, [labelId]: next };
-    if (onLabelOverridesChange) onLabelOverridesChange(updated);
-  }
-
-  // Helper to export/save the current overrides (could be passed as a prop callback)
-  function handleSaveOverrides() {
-    if (onSaveOverrides) {
-      onSaveOverrides(labelOverrides);
-    }
-  }
-
-  // Restore to default handler
-  function handleRestoreDefaults() {
-    if (onRestoreDefaults) {
-      onRestoreDefaults();
-    }
-  }
+  }, [getSectorColor, lighten]);
 
   // Helper to get full node name (e.g., Energy | Transport | Aviation)
-  function getFullNodeName(node: any): string {
-    // Walk up the parent chain if available, otherwise fallback to name
+  const getFullNodeName = useCallback((node: any): string => {
     let names = [];
     let n = node;
     while (n) {
@@ -115,9 +76,10 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       n = n.parent || n.__parent;
     }
     return names.join(' | ');
-  }
+  }, []);
 
-  useEffect(() => {
+  // Move chart rendering logic into a separate function
+  const renderChart = useCallback(() => {
     if (!svgRef.current) return;
 
     // Clear any existing content
@@ -153,10 +115,12 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       RING_RADIAL: 20           // Minimum for radial ring text when curved fails
     };
 
-    // Create the SVG container
+    // Responsive SVG centering
     const svg = d3.select(svgRef.current)
-      .attr('width', width)
-      .attr('height', height)
+      .attr('width', '100%')
+      .attr('height', '100%')
+      .attr('viewBox', `0 0 ${width} ${height}`)
+      .attr('preserveAspectRatio', 'xMidYMid meet')
       .append('g')
       .attr('transform', `translate(${svgCenterX},${svgCenterY})`);
 
@@ -164,19 +128,19 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
     const centerArc = d3.arc<d3.DefaultArcObject>()
       .innerRadius(0)
       .outerRadius(radius * CENTER_RADIUS)
-      .padAngle(0.01)
+      .padAngle(0)
       .padRadius(radius);
 
     const middleArc = d3.arc<d3.DefaultArcObject>()
       .innerRadius(radius * MIDDLE_RING_START)
       .outerRadius(radius * MIDDLE_RING_END)
-      .padAngle(0.01)
+      .padAngle(0)
       .padRadius(radius);
 
     const outerArc = d3.arc<d3.DefaultArcObject>()
       .innerRadius(radius * OUTER_RING_START)
       .outerRadius(radius * OUTER_RING_END)
-      .padAngle(0.01)
+      .padAngle(0)
       .padRadius(radius);
 
     // Process data into hierarchical structure
@@ -290,8 +254,73 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       }
     };
 
-    // LABEL RENDERING FUNCTIONS
-    // =========================
+    // Helper function to check if text would be upside down
+    function wouldBeUpsideDown(midAngle: number): boolean {
+      return midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2;
+    }
+
+    // Helper function to check if radial label would be cropped
+    function wouldRadialLabelBeCropped(
+      midAngle: number,
+      labelRadius: number,
+      text: string,
+      fontSize: string
+    ): boolean {
+      const svgHalfWidth = width / 2;
+      const svgHalfHeight = height / 2;
+      const extensionDistance = 10;
+      const charWidth = parseFloat(fontSize) * 0.6;
+      const lineHeight = parseFloat(fontSize) * 1.2;
+      const maxDistanceToEdge = Math.min(svgHalfWidth, svgHalfHeight) - 20;
+      const availableSpace = maxDistanceToEdge - labelRadius;
+      let maxCharsPerLine = Math.max(15, Math.floor(availableSpace / charWidth * 0.9));
+
+      const words = text.split(' ');
+      let linesArr: string[] = [];
+      let currentLine = '';
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= maxCharsPerLine) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) {
+            linesArr.push(currentLine);
+            currentLine = word;
+          } else {
+            linesArr.push(word);
+          }
+        }
+      }
+      if (currentLine) {
+        linesArr.push(currentLine);
+      }
+
+      const baseRadius = labelRadius + extensionDistance;
+      const angle = midAngle - Math.PI / 2;
+      const centerX = Math.cos(angle) * baseRadius;
+      const centerY = Math.sin(angle) * baseRadius;
+
+      for (let i = 0; i < linesArr.length; i++) {
+        const line = linesArr[i];
+        const lineWidth = line.length * charWidth;
+        const lineOffset = (i - (linesArr.length - 1) / 2) * lineHeight;
+        const lineCenterX = centerX - Math.sin(angle) * lineOffset;
+        const lineCenterY = centerY + Math.cos(angle) * lineOffset;
+        const leftX = lineCenterX - (lineWidth / 2) * Math.cos(angle);
+        const leftY = lineCenterY - (lineWidth / 2) * Math.sin(angle);
+        const rightX = lineCenterX + (lineWidth / 2) * Math.cos(angle);
+        const rightY = lineCenterY + (lineWidth / 2) * Math.sin(angle);
+        if (
+          leftX < -svgHalfWidth || leftX > svgHalfWidth ||
+          rightX < -svgHalfWidth || rightX > svgHalfWidth ||
+          leftY < -svgHalfHeight || leftY > svgHalfHeight ||
+          rightY < -svgHalfHeight || rightY > svgHalfHeight
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     // CENTER LABEL RENDERING FUNCTION - Horizontal for large sectors, radial for small
     function renderCenterLabel(
@@ -314,78 +343,6 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         const labelRadius = radius * CENTER_RADIUS * 0.8; // Position closer to the edge
         createRadialCenterLabel(g, `${text}\n${percentage}`, angle, labelRadius, FONT_SIZES.CENTER_SMALL);
       }
-    }
-
-    // Helper function to check if radial label would be cropped by SVG boundary
-    function wouldRadialLabelBeCropped(
-      midAngle: number,
-      labelRadius: number,
-      text: string,
-      fontSize: string
-    ): boolean {
-      // SVG dimensions
-      const svgHalfWidth = width / 2;
-      const svgHalfHeight = height / 2;
-      const extensionDistance = 10;
-      const charWidth = parseFloat(fontSize) * 0.6;
-      const lineHeight = parseFloat(fontSize) * 1.2;
-      const maxDistanceToEdge = Math.min(svgHalfWidth, svgHalfHeight) - 20; // 20px margin
-      const availableSpace = maxDistanceToEdge - labelRadius;
-      let maxCharsPerLine = Math.max(15, Math.floor(availableSpace / charWidth * 0.9));
-
-      // Simulate line breaking for the given text and maxCharsPerLine
-      const words = text.split(' ');
-      let linesArr: string[] = [];
-      let currentLine = '';
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        if (testLine.length <= maxCharsPerLine) {
-          currentLine = testLine;
-        } else {
-          if (currentLine) {
-            linesArr.push(currentLine);
-            currentLine = word;
-          } else {
-            linesArr.push(word);
-          }
-        }
-      }
-      if (currentLine) {
-        linesArr.push(currentLine);
-      }
-
-      // Geometry-aware cropping check
-      const baseRadius = labelRadius + extensionDistance;
-      const angle = midAngle - Math.PI / 2;
-      const centerX = Math.cos(angle) * baseRadius;
-      const centerY = Math.sin(angle) * baseRadius;
-      const totalLines = linesArr.length;
-      const startY = -((totalLines - 1) * lineHeight) / 2;
-
-      for (let i = 0; i < linesArr.length; i++) {
-        const line = linesArr[i];
-        const lineWidth = line.length * charWidth;
-        // For each line, calculate its offset perpendicular to the radial direction
-        const lineOffset = (i - (linesArr.length - 1) / 2) * lineHeight;
-        // Position of the line's center
-        const lineCenterX = centerX - Math.sin(angle) * lineOffset;
-        const lineCenterY = centerY + Math.cos(angle) * lineOffset;
-        // Project leftmost and rightmost character positions
-        const leftX = lineCenterX - (lineWidth / 2) * Math.cos(angle);
-        const leftY = lineCenterY - (lineWidth / 2) * Math.sin(angle);
-        const rightX = lineCenterX + (lineWidth / 2) * Math.cos(angle);
-        const rightY = lineCenterY + (lineWidth / 2) * Math.sin(angle);
-        // Check if left or right is outside SVG boundary
-        if (
-          leftX < -svgHalfWidth || leftX > svgHalfWidth ||
-          rightX < -svgHalfWidth || rightX > svgHalfWidth ||
-          leftY < -svgHalfHeight || leftY > svgHalfHeight ||
-          rightY < -svgHalfHeight || rightY > svgHalfHeight
-        ) {
-          return true;
-        }
-      }
-      return false;
     }
 
     // RING LABEL RENDERING FUNCTION - Curved when possible, radial fallback
@@ -411,9 +368,6 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       const text = `${node.name} (${node.share}%)`;
 
       // BALANCED LOGIC - Allow curved for medium-large segments, radial for smaller ones
-      // Based on console data: Energy use in Industry (474.4, 30 chars), Transport (317.6, 17 chars), Energy use in buildings (343.1, 31 chars)
-      // Keep smaller segments like Livestock & manure (113.7, 25 chars), Agricultural soils (80.4, 25 chars) as radial
-      
       let shouldUseCurved = false;
       
       // --- Check for per-label override ---
@@ -467,12 +421,6 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       }
     }
 
-    // Helper function to check if text would be upside down
-    function wouldBeUpsideDown(midAngle: number): boolean {
-      // More precise detection - avoid the bottom 180 degrees for curved text
-      return midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2;
-    }
-
     // HORIZONTAL CENTER LABEL CREATION - For large sectors
     function createHorizontalCenterLabel(
       g: d3.Selection<SVGGElement, unknown, null, undefined>,
@@ -482,28 +430,18 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       angle: number,
       fontSize: string
     ) {
-      // Position at the geometric center of the sector
-      // Calculate the exact x,y coordinates of the geometric center
       const sectorMidAngle = (node.startAngle + node.endAngle) / 2;
-      const sectorCenterRadius = radius * CENTER_RADIUS / 2; // Halfway from center to edge
-      
-      // Calculate x,y position of the geometric center
+      const sectorCenterRadius = radius * CENTER_RADIUS / 2;
       const centerX = Math.cos(sectorMidAngle - Math.PI / 2) * sectorCenterRadius;
       const centerY = Math.sin(sectorMidAngle - Math.PI / 2) * sectorCenterRadius;
-
-      // Calculate available width based on sector arc length at label radius
-      const sectorAngle = Math.abs(node.endAngle - node.startAngle); // Get sector angle in radians
-      const availableWidth = sectorAngle * sectorCenterRadius * 0.8; // 80% of arc length for safety margin
-      const charWidth = parseFloat(fontSize) * 0.6; // Approximate character width
+      const sectorAngle = Math.abs(node.endAngle - node.startAngle);
+      const availableWidth = sectorAngle * sectorCenterRadius * 0.8;
+      const charWidth = parseFloat(fontSize) * 0.6;
       const maxCharsPerLine = Math.floor(availableWidth / charWidth);
-
-      // Smart line breaking that respects sector width
       const words = text.split(/[\s&,]+/);
       const lines = [];
-      
       if (text.length > 15 && maxCharsPerLine > 5) {
         let currentLine = '';
-        
         for (const word of words) {
           const testLine = currentLine ? `${currentLine} ${word}` : word;
           if (testLine.length <= maxCharsPerLine) {
@@ -513,7 +451,7 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
               lines.push(currentLine);
               currentLine = word;
             } else {
-              lines.push(word); // Single word too long, force it
+              lines.push(word);
             }
           }
         }
@@ -523,20 +461,12 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       } else {
         lines.push(text);
       }
-      
-      // Add percentage as last line
       lines.push(percentage);
-
       const lineHeight = parseFloat(fontSize) * 1.1;
-      
-      // Calculate the central position for the entire label block
       const totalLines = lines.length;
-
       lines.forEach((line, i) => {
-        // For perfect centering, calculate position relative to center
         const totalSpan = (totalLines - 1) * lineHeight;
         const yOffset = -(totalSpan / 2) + (i * lineHeight);
-        
         g.append('text')
           .attr('x', centerX)
           .attr('y', centerY + yOffset)
@@ -545,7 +475,22 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
           .attr('font-weight', 'bold')
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'central')
-          .text(line);
+          .text(line)
+          .on('mouseover', function(event) {
+            setHovered({
+              name: getFullNodeName(node),
+              value: (typeof node.share === 'number' ? node.share.toFixed(2) + '%' : ''),
+              info: metadata[getFullNodeName(node)] || '',
+              x: event.clientX,
+              y: event.clientY
+            });
+          })
+          .on('mousemove', function(event) {
+            setHovered(h => h ? { ...h, x: event.clientX, y: event.clientY } : h);
+          })
+          .on('mouseout', function() {
+            setHovered(null);
+          });
       });
     }
 
@@ -561,17 +506,10 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       const lineHeight = parseFloat(fontSize) * 1.2;
       const totalHeight = lines.length * lineHeight;
       const startY = -totalHeight / 2 + lineHeight / 2;
-
-      // Normalize angle to 0-360 range
       const normalizedAngle = ((angle % 360) + 360) % 360;
-      
-      // For bottom half (90° to 270°), flip text to keep it readable
       const isBottomHalf = normalizedAngle > 90 && normalizedAngle < 270;
       const textAngle = isBottomHalf ? angle + 180 : angle;
-      
-      // Adjust label position for flipped text
       const adjustedRadius = isBottomHalf ? -labelRadius : labelRadius;
-
       lines.forEach((line, i) => {
         g.append('text')
           .attr('dy', '0.35em')
@@ -580,7 +518,22 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
           .attr('font-weight', 'bold')
           .attr('transform', `rotate(${textAngle}) translate(${adjustedRadius},${startY + i * lineHeight})`)
           .attr('text-anchor', 'middle')
-          .text(line);
+          .text(line)
+          .on('mouseover', function(event) {
+            setHovered({
+              name: line, // For radial, show the line text (usually name + %)
+              value: '',
+              info: '',
+              x: event.clientX,
+              y: event.clientY
+            });
+          })
+          .on('mousemove', function(event) {
+            setHovered(h => h ? { ...h, x: event.clientX, y: event.clientY } : h);
+          })
+          .on('mouseout', function() {
+            setHovered(null);
+          });
       });
     }
 
@@ -595,17 +548,11 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       const midAngle = (node.startAngle + node.endAngle) / 2;
       const id = `label-${node.id}-${node.depth}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Determine if we're in the bottom half
       const isBottomHalf = midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2;
-      
-      // Use consistent path direction
       const pathStartAngle = node.startAngle;
       const pathEndAngle = node.endAngle;
-      
-      // Position text outside the ring
-      const textRadius = labelRadius + 10; // Match radial label spacing (extensionDistance = 10)
+      const textRadius = labelRadius + 10;
 
-      // Create the curved path with consistent direction
       g.append('path')
         .attr('id', id)
         .attr('d', d3.arc()({
@@ -617,14 +564,10 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         .style('fill', 'none')
         .style('display', 'none');
 
-      // Split text into words to handle potential line breaks
       const words = text.split(' ');
-      
-      // For bottom half, start from the other end to read left-to-right
       const startOffset = isBottomHalf ? '100%' : '0%';
       const textAnchor = isBottomHalf ? 'end' : 'start';
       
-      // Create text with proper orientation
       g.append('text')
         .attr('font-size', fontSize)
         .attr('fill', '#374151')
@@ -632,7 +575,7 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         .attr('xlink:href', `#${id}`)
         .attr('startOffset', startOffset)
         .attr('text-anchor', textAnchor)
-        .attr('dy', isBottomHalf ? '-0.3em' : '1.0em') // Adjust position based on location
+        .attr('dy', isBottomHalf ? '-0.3em' : '1.0em')
         .text(text);
     }
 
@@ -645,20 +588,16 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       text: string,
       midAngle: number
     ) {
-      // Calculate available space from ring edge to SVG boundary
       const svgCenterX = width / 2;
       const svgCenterY = height / 2;
-      const maxDistanceToEdge = Math.min(svgCenterX, svgCenterY) - 20; // 20px margin
+      const maxDistanceToEdge = Math.min(svgCenterX, svgCenterY) - 20;
       const availableSpace = maxDistanceToEdge - labelRadius;
       const charWidth = parseFloat(fontSize) * 0.6;
       let maxCharsPerLine = Math.max(15, Math.floor(availableSpace / charWidth * 0.9));
 
-      // If cropping is detected, keep reducing maxCharsPerLine and re-check until the label fits or a minimum is reached
       let wouldBeCropped = wouldRadialLabelBeCropped(midAngle, labelRadius, text, fontSize);
       while (wouldBeCropped && maxCharsPerLine > 3) {
         maxCharsPerLine = Math.max(3, Math.floor(maxCharsPerLine * 0.5));
-        // Try breaking the text with the new maxCharsPerLine
-        // Simulate line breaking
         const wordsTest = text.split(' ');
         let linesTest = [];
         let currentLineTest = '';
@@ -678,13 +617,10 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
         if (currentLineTest) {
           linesTest.push(currentLineTest);
         }
-        // Reconstruct the text as it would be rendered
         const testText = linesTest.join('\n');
-        // Check if this new breaking would still be cropped
         wouldBeCropped = wouldRadialLabelBeCropped(midAngle, labelRadius, testText, fontSize);
       }
 
-      // Now use the final maxCharsPerLine for actual line breaking
       const words = text.split(' ');
       const lines = [];
       const lastWord = words[words.length - 1];
@@ -773,111 +709,119 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
       });
     }
 
-    // Recursive function to render arcs
+    // Render the chart
     const renderArcs = (parent: d3.Selection<SVGGElement, unknown, null, undefined>, node: HierarchyDatum, parentColor?: string, sectorIdx?: number) => {
       const g = parent.append('g');
 
-      // Draw this node's arc
-      if (node.depth) {
-        const arcPath = g.append('path')
-          .attr('d', getArc(node.depth)({
-            startAngle: node.startAngle ?? 0,
-            endAngle: node.endAngle ?? 0,
-            innerRadius: node.innerRadius ?? 0,
-            outerRadius: node.outerRadius ?? 0
-          }))
-          .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx))
-          .on('mousemove', (event) => {
-            console.log('[TOOLTIP ARC HOVER]', node);
-            const offsetY = 18;
-            const key = getFullNodeName(node);
-            const leafKey = (node.name || '').trim().toLowerCase();
-            const normKey = key.trim().toLowerCase();
-            let info = '';
-            // Try full path match first
-            for (const metaKey in metadata) {
-              if (metaKey.trim().toLowerCase() === normKey) {
-                info = metadata[metaKey];
-                break;
-              }
-            }
-            // If not found, try leaf node name
-            if (!info) {
-              for (const metaKey in metadata) {
-                if (metaKey.trim().toLowerCase() === leafKey) {
-                  info = metadata[metaKey];
-                  break;
-                }
-              }
-            }
-            // Debug log for tooltip info lookup
-            console.log('[TOOLTIP DEBUG]', {
-              fullKey: key,
-              leafKey,
-              metadataKeys: Object.keys(metadata),
-              info
-            });
-            setHovered({
-              name: key,
-              value: typeof node.share === 'number' ? node.share : 0,
-              info,
-              x: event.clientX,
-              y: event.clientY - offsetY
-            });
-            d3.select(event.currentTarget)
-              .attr('fill', lighten(node.color || getNodeColor(node, parentColor, sectorIdx), 0.25));
-          })
-          .on('mouseleave', (event) => {
-            setHovered(null);
-            // Restore arc color
-            d3.select(event.currentTarget)
-              .attr('fill', node.color || getNodeColor(node, parentColor, sectorIdx));
+      // Draw the arc
+      const arc = getArc(node.depth || 1);
+      let baseFill = node.color || getNodeColor(node, parentColor, sectorIdx);
+      const path = g.append('path')
+        .datum(node)
+        .attr('d', arc)
+        .attr('fill', baseFill)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1)
+        .style('cursor', 'pointer')
+        .on('mouseover', function (event) {
+          d3.select(this).attr('fill', lighten(baseFill, 0.25));
+          setHovered({
+            name: getFullNodeName(node),
+            value: (typeof node.share === 'number' ? node.share.toFixed(2) + '%' : ''),
+            info: metadata[getFullNodeName(node)] || '',
+            x: event.clientX,
+            y: event.clientY
           });
+        })
+        .on('mousemove', function (event) {
+          setHovered(h => h ? { ...h, x: event.clientX, y: event.clientY } : h);
+        })
+        .on('mouseout', function () {
+          d3.select(this).attr('fill', baseFill);
+          setHovered(null);
+        });
 
-        // Add center labels for main sectors
-        if (node.depth === 1) {
-          const midAngle = (node.startAngle + node.endAngle) / 2;
-          const arcLength = Math.abs(node.endAngle - node.startAngle) * radius * CENTER_RADIUS;
-          renderCenterLabel(g, node, midAngle, arcLength);
-        } else if (node.depth === 2 || node.depth === 3) {
-          // RING LABELS - Curved preferred, radial extending outward as fallback
-          const midAngle = (node.startAngle + node.endAngle) / 2;
-          const arcLength = Math.abs(node.endAngle - node.startAngle) * 
-            (node.depth === 2 ? radius * MIDDLE_RING_END : radius * OUTER_RING_END);
-          renderRingLabel(g, node, midAngle, arcLength);
+      // Add labels
+      if (node.depth === 1) {
+        const midAngle = (node.startAngle + node.endAngle) / 2;
+        const arcLength = (node.endAngle - node.startAngle) * radius;
+        // Restore: Only use horizontal for very large arcs, otherwise use radial
+        if (arcLength > 180) {
+          createHorizontalCenterLabel(g, node, node.name || '', `(${node.share}%)`, midAngle * 180 / Math.PI - 90, FONT_SIZES.CENTER_LARGE);
+        } else {
+          const labelRadius = radius * CENTER_RADIUS * 0.8;
+          createRadialCenterLabel(g, `${node.name}\n(${node.share}%)`, midAngle * 180 / Math.PI - 90, labelRadius, FONT_SIZES.CENTER_SMALL);
         }
+      } else if (node.depth === 2 || node.depth === 3) {
+        const midAngle = (node.startAngle + node.endAngle) / 2;
+        const arcLength = (node.endAngle - node.startAngle) * radius;
+        renderRingLabel(g, node, midAngle, arcLength);
       }
 
       // Recursively render children
       if (node.children) {
         node.children.forEach(child => renderArcs(g, child, node.color, node.sectorIdx));
       }
-
-      // Set pointer-events: none on all label text elements
-      g.selectAll('text').attr('pointer-events', 'none');
     };
 
-    // Start rendering from root
-    renderArcs(svg, hierarchicalData, undefined);
+    // Start rendering from the root
+    renderArcs(svg, hierarchicalData);
+  }, [data, labelOverrides, editMode, metadata, getNodeColor, getSectorColor, lighten, getFullNodeName]);
 
-  }, [data, editMode, labelOverrides, metadata]);
+  // Add effect to re-render chart when labelOverrides change
+  useEffect(() => {
+    renderChart();
+  }, [renderChart]);
+
+  // Expose a method to get the current localLabelOverrides
+  useImperativeHandle(ref, () => ({
+    getLabelOverrides: () => localLabelOverrides,
+    resetLocalLabelOverrides: () => setLocalLabelOverrides({}),
+    setLocalLabelOverrides: (overrides: { [key: string]: 'radial' | 'curved' }) => setLocalLabelOverrides(overrides),
+  }), [localLabelOverrides]);
+
+  // Only set localLabelOverrides when entering edit mode
+  useEffect(() => {
+    if (editMode && propLabelOverrides) {
+      setLocalLabelOverrides(propLabelOverrides);
+    }
+    // Do NOT reset localLabelOverrides on exit, let it be ignored
+  }, [editMode, propLabelOverrides]);
+
+  // Helper to toggle a label's alignment override
+  function handleLabelDoubleClick(labelId: string) {
+    if (!editMode) return;
+    const current = labelOverrides[labelId];
+    const next: 'radial' | 'curved' = current === 'curved' ? 'radial' : 'curved';
+    if (onLabelOverridesChange) {
+      const updated = { ...labelOverrides, [labelId]: next };
+      onLabelOverridesChange(updated);
+    }
+  }
+
+  // Helper to export/save the current overrides (could be passed as a prop callback)
+  function handleSaveOverrides() {
+    if (onSaveOverrides) {
+      onSaveOverrides(labelOverrides);
+    }
+  }
+
+  // Restore to default handler
+  function handleRestoreDefaults() {
+    if (onRestoreDefaults) {
+      onRestoreDefaults();
+    }
+  }
 
   return (
-    <div className={`relative ${editMode ? 'border-4 border-blue-400' : ''} flex flex-col items-center bg-white rounded-lg shadow-lg`}>
-      {editMode && (
-        <div className="absolute top-0 left-0 w-full bg-blue-100 text-blue-800 text-center py-1 z-10">
-          Edit Mode: Double-click a label to change alignment. Click Save to create a new version.
-        </div>
-      )}
-      <div className={editMode ? 'pt-8 w-full flex justify-center' : ''}>
-        <svg ref={svgRef} />
-      </div>
+    <div className="relative">
+      <svg ref={svgRef} className="w-full h-full" />
       {hovered && (
         <ThemedTooltip
           x={hovered.x}
           y={hovered.y}
           name={hovered.name}
-          value={typeof hovered.value === 'number' ? hovered.value.toFixed(2) + '%' : ''}
+          value={hovered.value}
           info={hovered.info}
         />
       )}
@@ -885,4 +829,4 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
   );
 });
 
-export default GHGEmissionsSunburst; 
+export default GHGEmissionsSunburst;
