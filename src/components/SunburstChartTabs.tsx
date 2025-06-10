@@ -828,6 +828,12 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
                   onChange={handleDataTableUpload}
                 />
               </label>
+              <button
+                className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
+                onClick={handleSaveAll}
+              >
+                Save
+              </button>
             </div>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -870,12 +876,18 @@ export default function SunburstChartTabs({ initialVersion }: { initialVersion?:
 
         {activeTab === 'metadata' && (
           <div className="overflow-x-auto">
-            <div className="flex justify-end mb-2">
+            <div className="flex justify-end mb-2 gap-2">
               <button
                 className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition"
                 onClick={downloadMetadataCSV}
               >
                 Download CSV
+              </button>
+              <button
+                className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition"
+                onClick={handleSaveAll}
+              >
+                Save
               </button>
             </div>
             <table className="min-w-full divide-y divide-gray-200">

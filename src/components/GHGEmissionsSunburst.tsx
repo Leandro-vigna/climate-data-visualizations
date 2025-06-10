@@ -815,7 +815,7 @@ const GHGEmissionsSunburst = forwardRef(function GHGEmissionsSunburst({
 
   return (
     <div className="relative">
-      <svg ref={svgRef} className="w-full h-full" />
+      <svg ref={svgRef} className="w-full max-w-[800px] h-auto mx-auto" />
       {hovered && (
         <ThemedTooltip
           x={hovered.x}

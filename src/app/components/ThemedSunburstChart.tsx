@@ -14,27 +14,29 @@ export function ThemedSunburstChart() {
   };
 
   return (
-    <div className="w-full h-full" style={{ fontFamily: themeStyles.fontFamily }}>
-      <div className="p-4">
-        <h1 
-          className="text-2xl font-bold mb-4"
-          style={{ 
-            color: themeStyles.colors.text,
-            fontSize: themeStyles.fontSize.xlarge,
-            fontWeight: themeStyles.fontWeight.bold
-          }}
-        >
-          GHG Emissions Sunburst Chart
-        </h1>
-        <div 
-          className="rounded-lg p-4"
-          style={{ 
-            backgroundColor: themeStyles.colors.background,
-            boxShadow: themeStyles.shadows.medium,
-            borderRadius: themeStyles.borderRadius.medium
-          }}
-        >
-          <GHGEmissionsSunburst getSegmentColor={getSegmentColor} />
+    <div className="w-full flex justify-center">
+      <div className="w-full max-w-[800px] mx-auto h-full" style={{ fontFamily: themeStyles.fontFamily }}>
+        <div className="p-4">
+          <h1 
+            className="text-2xl font-bold mb-4"
+            style={{ 
+              color: themeStyles.colors.text,
+              fontSize: themeStyles.fontSize.xlarge,
+              fontWeight: themeStyles.fontWeight.bold
+            }}
+          >
+            GHG Emissions Sunburst Chart
+          </h1>
+          <div 
+            className="rounded-lg p-4"
+            style={{ 
+              backgroundColor: themeStyles.colors.background,
+              boxShadow: themeStyles.shadows.medium,
+              borderRadius: themeStyles.borderRadius.medium
+            }}
+          >
+            <GHGEmissionsSunburst getSegmentColor={getSegmentColor} />
+          </div>
         </div>
       </div>
     </div>
