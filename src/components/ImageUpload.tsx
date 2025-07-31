@@ -1,6 +1,9 @@
 import React, { useState, useRef } from "react";
-import { Image as ImageIcon, X } from "lucide-react";
+import { Image as ImageIcon, X, Upload } from "lucide-react";
 import Image from "next/image";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface ImageUploadProps {
   onImageChange: (file: File | null) => void;
@@ -33,35 +36,48 @@ export default function ImageUpload({ onImageChange }: ImageUploadProps) {
   return (
     <div className="flex items-center justify-center w-full">
       {imagePreview ? (
-        <div className="relative w-full h-64">
-          <Image
-            src={imagePreview}
-            alt="Preview"
-            layout="fill"
-            objectFit="cover"
-            className="rounded-lg"
-          />
-          <button
-            type="button"
-            onClick={removeImage}
-            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        <Card className="relative w-full h-64 overflow-hidden">
+          <CardContent className="p-0 h-full">
+            <Image
+              src={imagePreview}
+              alt="Preview"
+              fill
+              className="object-cover"
+            />
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={removeImage}
+              className="absolute top-2 right-2 h-8 w-8 p-0"
+            >
+              <X size={16} />
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
-        <label
-          htmlFor="image"
-          className="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
-        >
-          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-            <ImageIcon className="w-10 h-10 mb-3 text-gray-400" />
-            <p className="mb-2 text-sm text-gray-500">
-              <span className="font-semibold">Click to upload</span> or drag and drop
-            </p>
-            <p className="text-xs text-gray-500">PNG, JPG or GIF (MAX. 800x400px)</p>
-          </div>
-        </label>
+        <Card className="w-full h-64 border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 transition-colors">
+          <CardContent className="p-0 h-full">
+            <label
+              htmlFor="image"
+              className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex flex-col items-center justify-center space-y-4">
+                <div className="p-3 rounded-full bg-primary/10">
+                  <Upload className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div className="text-center space-y-2">
+                  <p className="text-sm font-medium">
+                    <span className="font-semibold">Click to upload</span> or drag and drop
+                  </p>
+                  <Badge variant="secondary" className="text-xs">
+                    PNG, JPG or GIF (MAX. 800x400px)
+                  </Badge>
+                </div>
+              </div>
+            </label>
+          </CardContent>
+        </Card>
       )}
       <input
         type="file"

@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import { useDeepgram } from '../lib/contexts/DeepgramContext';
 import { addDocument } from '../lib/firebase/firebaseUtils';
 import { motion } from 'framer-motion';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Mic, MicOff, Save } from "lucide-react";
 
 export default function VoiceRecorder() {
   const [isRecording, setIsRecording] = useState(false);
@@ -29,29 +33,55 @@ export default function VoiceRecorder() {
 
   return (
     <div className="w-full max-w-md">
-      <button
+      <Button
         onClick={isRecording ? handleStopRecording : handleStartRecording}
-        className={`w-full py-2 px-4 rounded-full ${
-          isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
-        } text-white font-bold`}
+        variant={isRecording ? "destructive" : "default"}
+        size="lg"
+        className="w-full flex items-center space-x-2"
       >
-        {isRecording ? 'Stop Recording' : 'Start Recording'}
-      </button>
+        {isRecording ? (
+          <>
+            <MicOff className="w-4 h-4" />
+            <span>Stop Recording</span>
+          </>
+        ) : (
+          <>
+            <Mic className="w-4 h-4" />
+            <span>Start Recording</span>
+          </>
+        )}
+      </Button>
+      
       {isRecording && (
-        <div className="mt-4 p-4 bg-gray-100 rounded-lg">
-          <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-            className="w-8 h-8 bg-blue-500 rounded-full mx-auto mb-4"
-          />
-          <p className="text-sm text-gray-600">{realtimeTranscript}</p>
-        </div>
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <Badge variant="secondary" className="flex items-center space-x-1">
+                <motion.div
+                  animate={{
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                  className="w-2 h-2 bg-red-500 rounded-full"
+                />
+                <span>Recording...</span>
+              </Badge>
+              <Badge variant="outline">
+                {connectionState}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Live Transcript:</p>
+              <p className="text-sm bg-muted p-3 rounded-md min-h-[60px]">
+                {realtimeTranscript || "Listening..."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

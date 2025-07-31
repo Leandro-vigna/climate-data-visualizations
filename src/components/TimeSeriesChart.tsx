@@ -3,6 +3,8 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { AggregatedPoint } from '../lib/DataParser';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarChart3 } from "lucide-react";
 
 interface TimeSeriesChartProps {
   data: AggregatedPoint[];
@@ -20,28 +22,36 @@ const COLORS = [
 
 function TimeSeriesChart({ data, platforms }: TimeSeriesChartProps) {
   return (
-    <div className="bg-white rounded shadow p-4 w-full">
-      <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={data.map(d => ({ ...d, label: formatLabel(d.month, d.year) }))} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="label" />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Legend />
-          {platforms.map((platform, idx) => (
-            <Line
-              key={platform}
-              type="monotone"
-              dataKey={platform}
-              stroke={COLORS[idx % COLORS.length]}
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle className="flex items-center space-x-2">
+          <BarChart3 className="w-5 h-5" />
+          <span>Time Series Chart</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={data.map(d => ({ ...d, label: formatLabel(d.month, d.year) }))} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" />
+            <YAxis allowDecimals={false} />
+            <Tooltip />
+            <Legend />
+            {platforms.map((platform, idx) => (
+              <Line
+                key={platform}
+                type="monotone"
+                dataKey={platform}
+                stroke={COLORS[idx % COLORS.length]}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 }
 

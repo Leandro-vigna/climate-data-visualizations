@@ -6,6 +6,11 @@ import { getSession } from 'next-auth/react';
 import FileUploader from './FileUploader';
 import TimeSeriesChart from './TimeSeriesChart';
 import { parseFiles, ParsedRecord, AggregatedPoint } from '../lib/DataParser';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Save, Trash2, Download, Upload } from "lucide-react";
 
 interface TimeSeries {
   id: string;
@@ -101,27 +106,31 @@ export default function DataVisualizer({ session }: DataVisualizerProps) {
   const handleClear = () => {
     setFiles([]);
     setParsedRecords([]);
+    setPlatformEdits({});
+    setDatasetName('');
   };
 
   function handlePlatformEdit(original: string, e: ChangeEvent<HTMLInputElement>) {
-    setPlatformEdits(edits => ({ ...edits, [original]: e.target.value }));
+    setPlatformEdits(prev => ({ ...prev, [original]: e.target.value }));
   }
 
   const saveDataset = async () => {
-    if (!datasetName.trim() || !parsedRecords.length) return;
+    if (!datasetName.trim() || !session?.user) return;
+    
     setIsSaving(true);
     try {
-      await fetchWithAuth('/api/timeseries', {
+      const response = await fetchWithAuth('/api/timeseries', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: datasetName, dataPoints: parsedRecords }),
+        body: JSON.stringify({
+          name: datasetName,
+          dataPoints: editedParsedRecords,
+        }),
       });
-      setDatasetName('');
-      // Refresh list
-      const data = await fetchWithAuth('/api/timeseries');
-      setSavedDatasets(Array.isArray(data) ? data : []);
+      
+      if (response) {
+        setSavedDatasets(prev => [...prev, response]);
+        setDatasetName('');
+      }
     } catch (error) {
       console.error('Error saving dataset:', error);
     } finally {
@@ -131,16 +140,10 @@ export default function DataVisualizer({ session }: DataVisualizerProps) {
 
   const deleteDataset = async (id: string) => {
     try {
-      await fetchWithAuth('/api/timeseries', {
+      await fetchWithAuth(`/api/timeseries/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id }),
       });
-      // Refresh list
-      const data = await fetchWithAuth('/api/timeseries');
-      setSavedDatasets(Array.isArray(data) ? data : []);
+      setSavedDatasets(prev => prev.filter(d => d.id !== id));
     } catch (error) {
       console.error('Error deleting dataset:', error);
     }
@@ -169,85 +172,121 @@ export default function DataVisualizer({ session }: DataVisualizerProps) {
   };
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-start p-4 bg-gray-50">
-      <h1 className="text-3xl md:text-5xl font-bold text-center mt-8 mb-2">CSV/Excel Time Series Visualizer</h1>
-      <p className="text-center text-gray-600 mb-6">Upload one or more CSV or Excel files to visualize monthly user counts for different platforms.</p>
+    <main className="min-h-screen flex flex-col items-center justify-start p-4 bg-background">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl md:text-5xl font-bold mb-2">CSV/Excel Time Series Visualizer</h1>
+        <p className="text-muted-foreground">Upload one or more CSV or Excel files to visualize monthly user counts for different platforms.</p>
+      </div>
+      
       <div className="w-full max-w-2xl">
         <FileUploader onFilesSelected={handleFiles} isLoading={isLoading} />
       </div>
+      
       {isLoading && (
-        <div className="flex flex-col items-center mt-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-2"></div>
-          <span className="text-blue-500">Parsing files...</span>
-        </div>
+        <Card className="mt-8 p-6">
+          <CardContent className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="text-primary font-medium">Parsing files...</span>
+          </CardContent>
+        </Card>
       )}
+      
       {parsedRecords.length > 0 && !isLoading && (
         <>
-          <div className="w-full max-w-2xl mt-8 mb-4 bg-white rounded shadow p-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-semibold">Detected Platforms:</span>
-              <button className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600" onClick={handleClear}>Clear All</button>
-            </div>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {platforms.map((p) => (
-                <input
-                  key={p}
-                  value={platformEdits[p] ?? p}
-                  onChange={e => handlePlatformEdit(p, e)}
-                  className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  style={{ minWidth: 80 }}
-                />
-              ))}
-            </div>
-            <div className="text-gray-500 text-sm">Total records: {parsedRecords.length}</div>
-          </div>
+          <Card className="w-full max-w-2xl mt-8">
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>Detected Platforms</CardTitle>
+                <Button variant="destructive" size="sm" onClick={handleClear}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {platforms.map((p) => (
+                  <Input
+                    key={p}
+                    value={platformEdits[p] ?? p}
+                    onChange={e => handlePlatformEdit(p, e)}
+                    className="w-auto min-w-[120px] text-sm"
+                    placeholder="Platform name"
+                  />
+                ))}
+              </div>
+              <Badge variant="secondary">
+                Total records: {parsedRecords.length}
+              </Badge>
+            </CardContent>
+          </Card>
+          
           <div className="w-full max-w-5xl mb-12">
             <TimeSeriesChart data={aggregatedData} platforms={editedPlatforms} />
           </div>
-          <div className="w-full max-w-2xl mt-4 mb-4 bg-white rounded shadow p-4 flex flex-col gap-2">
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                placeholder="Dataset name"
-                value={datasetName}
-                onChange={e => setDatasetName(e.target.value)}
-                className="border px-2 py-1 rounded w-full"
-                disabled={isSaving}
-              />
-              <button
-                className="px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                onClick={saveDataset}
-                disabled={isSaving || !datasetName.trim()}
-              >
-                {isSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </div>
+          
+          <Card className="w-full max-w-2xl mb-4">
+            <CardContent className="p-4">
+              <div className="flex gap-2 items-center">
+                <Input
+                  type="text"
+                  placeholder="Dataset name"
+                  value={datasetName}
+                  onChange={e => setDatasetName(e.target.value)}
+                  disabled={isSaving}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={saveDataset}
+                  disabled={isSaving || !datasetName.trim()}
+                  className="flex items-center space-x-2"
+                >
+                  {isSaving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          
           {savedDatasets.length > 0 && (
-            <div className="w-full max-w-2xl mt-4 mb-8 bg-white rounded shadow p-4">
-              <div className="font-semibold mb-2">Your Saved Datasets</div>
-              <ul className="divide-y">
-                {savedDatasets.map(dataset => (
-                  <li key={dataset.id} className="flex justify-between items-center py-2">
-                    <span className="truncate max-w-xs">{dataset.name}</span>
-                    <div className="flex gap-2">
-                      <button
-                        className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        onClick={() => loadDataset(dataset)}
-                      >
-                        Load
-                      </button>
-                      <button
-                        className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        onClick={() => deleteDataset(dataset.id)}
-                      >
-                        Delete
-                      </button>
+            <Card className="w-full max-w-2xl mb-8">
+              <CardHeader>
+                <CardTitle>Your Saved Datasets</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {savedDatasets.map(dataset => (
+                    <div key={dataset.id} className="flex justify-between items-center p-3 border rounded-lg">
+                      <span className="truncate max-w-xs font-medium">{dataset.name}</span>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => loadDataset(dataset)}
+                          className="flex items-center space-x-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>Load</span>
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => deleteDataset(dataset.id)}
+                          className="flex items-center space-x-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Delete</span>
+                        </Button>
+                      </div>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </>
       )}
