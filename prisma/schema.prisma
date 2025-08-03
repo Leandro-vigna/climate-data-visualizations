@@ -16,6 +16,8 @@ model User {
   accounts   Account[]
   sessions   Session[]
   timeSeries TimeSeries[]
+  dataTools  DataTool[]
+  analyticsCollections AnalyticsCollection[]
 }
 
 model TimeSeries {
@@ -26,6 +28,38 @@ model TimeSeries {
   updatedAt  DateTime @updatedAt
   dataPoints Json
   user       User     @relation(fields: [userId], references: [id])
+}
+
+model DataTool {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  url              String?
+  googleAnalyticsId String?
+  status           String   @default("active") // active, inactive
+  progressGA       Int      @default(0) // Google Analytics progress percentage
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id])
+  analyticsCollections AnalyticsCollection[]
+}
+
+model AnalyticsCollection {
+  id               String   @id @default(cuid())
+  userId           String
+  dataToolId       String
+  toolName         String
+  collectionDate   DateTime @default(now())
+  timePeriod       String   // e.g., "30 days"
+  dataLayers       Json     // Array of data layers collected
+  data             Json     // The actual analytics data
+  dataSource       String   @default("google-analytics") // google-analytics, mock-data
+  totalRecords     Int      @default(0)
+  status           String   @default("collected") // collected, processing, failed
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id])
+  dataTool         DataTool @relation(fields: [dataToolId], references: [id])
 }
 
 model Account {

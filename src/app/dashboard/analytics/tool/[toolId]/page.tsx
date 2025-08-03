@@ -152,7 +152,28 @@ export default function DataToolPage() {
   
   const [dataTool, setDataTool] = useState<DataTool | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedTimePeriod, setSelectedTimePeriod] = useState<string>('30');
+  const [selectedDataLayers, setSelectedDataLayers] = useState({
+    pageviews: true,
+    users: false,
+    traffic: false,
+    events: false
+  });
+  const [isCollecting, setIsCollecting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message: string;
+    error?: string;
+  } | null>(null);
+  
+  const [analyticsData, setAnalyticsData] = useState<any[]>([]);
+  const [isCollectingData, setIsCollectingData] = useState(false);
+  const [dataResults, setDataResults] = useState<{
+    success: boolean;
+    message: string;
+    data?: any;
+  } | null>(null);
 
   // Load data tool from localStorage or mock data
   useEffect(() => {
@@ -189,6 +210,91 @@ export default function DataToolPage() {
       
       // Navigate back to main analytics page
       router.push('/dashboard/analytics');
+    }
+  };
+
+  // Test connection function
+  const testConnection = async () => {
+    if (!dataTool?.googleAnalyticsId) {
+      setTestResult({
+        success: false,
+        message: 'No Google Analytics Property ID configured',
+        error: 'Please configure a Property ID first'
+      });
+      return;
+    }
+
+    setIsConnecting(true);
+    setTestResult(null);
+
+    try {
+      console.log('🧪 Testing Google Analytics connection...');
+      const response = await fetch(`/api/analytics?days=1&toolId=${dataTool.googleAnalyticsId}`);
+      const result = await response.json();
+
+      if (result.success) {
+        setTestResult({
+          success: true,
+          message: `✅ Connection successful! Found ${result.totalRecords || 0} records.`,
+        });
+        console.log('✅ Test connection successful:', result);
+      } else {
+        setTestResult({
+          success: false,
+          message: result.error || 'Connection failed',
+          error: result.serviceAccountError || result.note
+        });
+        console.log('❌ Test connection failed:', result);
+      }
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: 'Network error occurred during test',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      console.error('❌ Test connection error:', error);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // Handle data collection
+  const handleDataCollection = () => {
+    if (!dataTool) return;
+
+    const selectedLayers = Object.entries(selectedDataLayers)
+      .filter(([_, selected]) => selected)
+      .map(([layer, _]) => layer);
+
+    if (selectedLayers.length === 0) {
+      alert('Please select at least one data layer to collect.');
+      return;
+    }
+
+    const timePeriodText = selectedTimePeriod === '7' ? '7 days' : 
+                          selectedTimePeriod === '30' ? '30 days' : 
+                          selectedTimePeriod === '90' ? '90 days' : 'custom range';
+
+    const confirmationMessage = `Start data collection for "${dataTool.name}"?\n\n` +
+      `Time Period: Last ${timePeriodText}\n` +
+      `Data Layers: ${selectedLayers.join(', ')}\n\n` +
+      `This will collect data from Google Analytics and show you a preview.`;
+
+    if (confirm(confirmationMessage)) {
+      setIsCollecting(true);
+      
+      // Simulate data collection process
+      setTimeout(() => {
+        setIsCollecting(false);
+        
+        // Navigate to preview page with collection parameters
+        const params = new URLSearchParams({
+          timePeriod: selectedTimePeriod,
+          dataLayers: selectedLayers.join(',')
+        });
+        
+        router.push(`/dashboard/analytics/tool/${toolId}/preview?${params.toString()}`);
+      }, 2000);
     }
   };
 
@@ -397,9 +503,9 @@ export default function DataToolPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Google Analytics Tab */}
+        {/* Google Analytics Tab Content */}
         <TabsContent value="google-analytics" className="space-y-6">
-          {/* API Connection */}
+          {/* API Connection Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -408,40 +514,201 @@ export default function DataToolPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="ga-id">Google Analytics ID</Label>
-                  <Input 
-                    id="ga-id" 
-                    value={dataTool.googleAnalyticsId}
-                    placeholder="GA-XXXXXXXXX"
-                    className="mt-1"
-                  />
+              <div>
+                <Label htmlFor="ga-id">Google Analytics Property ID</Label>
+                <Input 
+                  id="ga-id" 
+                  placeholder="e.g., 325582229"
+                  value={dataTool?.googleAnalyticsId || ''}
+                  readOnly
+                />
+                <p className="text-sm text-muted-foreground mt-1">
+                  This is the Property ID configured for this data tool.
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={testConnection}
+                disabled={isConnecting}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isConnecting ? 'animate-spin' : ''}`} />
+                {isConnecting ? 'Testing...' : 'Test Connection'}
+              </Button>
+              
+              {/* Test Result Display */}
+              {testResult && (
+                <div className={`mt-3 p-3 rounded-lg border ${
+                  testResult.success 
+                    ? 'bg-green-50 border-green-200 text-green-800' 
+                    : 'bg-red-50 border-red-200 text-red-800'
+                }`}>
+                  <p className="font-medium">{testResult.message}</p>
+                  {testResult.error && (
+                    <p className="text-sm mt-1 opacity-75">{testResult.error}</p>
+                  )}
                 </div>
-                <div className="flex items-end">
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Data Collection Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Database className="w-5 h-5" />
+                <span>Data Collection Setup</span>
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Configure the time period and data layers you want to collect from Google Analytics.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Time Period Selection */}
+              <div className="space-y-3">
+                <Label className="text-base font-medium">Time Period</Label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <Button 
-                    className="w-full"
-                    disabled={isConnecting}
-                    onClick={() => setIsConnecting(true)}
+                    variant={selectedTimePeriod === '7' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-auto p-3 flex flex-col items-center"
+                    onClick={() => setSelectedTimePeriod('7')}
                   >
-                    {isConnecting ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      <>
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        Connect API
-                      </>
-                    )}
+                    <Calendar className="w-4 h-4 mb-1" />
+                    <span className="text-xs">Last 7 days</span>
+                  </Button>
+                  <Button 
+                    variant={selectedTimePeriod === '30' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-auto p-3 flex flex-col items-center"
+                    onClick={() => setSelectedTimePeriod('30')}
+                  >
+                    <Calendar className="w-4 h-4 mb-1" />
+                    <span className="text-xs">Last 30 days</span>
+                  </Button>
+                  <Button 
+                    variant={selectedTimePeriod === '90' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-auto p-3 flex flex-col items-center"
+                    onClick={() => setSelectedTimePeriod('90')}
+                  >
+                    <Calendar className="w-4 h-4 mb-1" />
+                    <span className="text-xs">Last 90 days</span>
+                  </Button>
+                  <Button 
+                    variant={selectedTimePeriod === 'custom' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-auto p-3 flex flex-col items-center"
+                    onClick={() => setSelectedTimePeriod('custom')}
+                  >
+                    <Calendar className="w-4 h-4 mb-1" />
+                    <span className="text-xs">Custom Range</span>
                   </Button>
                 </div>
+              </div>
+
+              {/* Data Layer Selection */}
+              <div className="space-y-3">
+                <Label className="text-base font-medium">Data Layers to Collect</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="pageviews" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.pageviews}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, pageviews: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="pageviews" className="font-medium">Page Views</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Daily page views by page, country, and traffic source
+                      </p>
+                    </div>
+                    <Badge variant="secondary">Core</Badge>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="users" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.users}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, users: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="users" className="font-medium">User Engagement</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Session duration, bounce rate, pages per session
+                      </p>
+                    </div>
+                    <Badge variant="outline">Optional</Badge>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="traffic" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.traffic}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, traffic: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="traffic" className="font-medium">Traffic Sources</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Referrer data, campaign performance, organic vs paid
+                      </p>
+                    </div>
+                    <Badge variant="outline">Optional</Badge>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="events" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.events}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, events: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="events" className="font-medium">Custom Events</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Downloads, newsletter signups, tool interactions
+                      </p>
+                    </div>
+                    <Badge variant="outline">Optional</Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Collection Button */}
+              <div className="pt-4 border-t">
+                <Button 
+                  className="w-full" 
+                  size="lg"
+                  disabled={isCollecting || !Object.values(selectedDataLayers).some(Boolean)}
+                  onClick={handleDataCollection}
+                >
+                  {isCollecting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Collecting Data...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-2" />
+                      Start Data Collection
+                    </>
+                  )}
+                </Button>
+                <p className="text-sm text-muted-foreground mt-2 text-center">
+                  This will collect the selected data layers and store them in your master dataset.
+                </p>
               </div>
             </CardContent>
           </Card>
 
-          {/* Data Layers */}
+          {/* Data Layers Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -455,22 +722,28 @@ export default function DataToolPage() {
                   <Card key={layer.id} className="p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-3">
-                        {getStatusIcon(layer.status)}
-                        <div>
-                          <h4 className="font-semibold">{layer.name}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Last updated: {layer.lastUpdated}
-                          </p>
-                        </div>
+                        <div className={`w-3 h-3 rounded-full ${layer.status === 'processed' ? 'bg-green-500' : layer.status === 'processing' ? 'bg-yellow-500' : 'bg-gray-300'}`}></div>
+                        <h4 className="font-medium">{layer.name}</h4>
                       </div>
-                      <Badge className={getStatusColor(layer.status)}>
-                        {layer.status.replace('-', ' ')}
+                      <Badge variant={layer.status === 'processed' ? 'default' : 'secondary'}>
+                        {layer.status}
                       </Badge>
                     </div>
-                    <Progress value={layer.progress} className="h-2 mb-3" />
-                    <div className="flex items-center justify-between text-sm text-muted-foreground">
-                      <span>Metrics: {layer.metrics.join(', ')}</span>
-                      <span>Dimensions: {layer.dimensions.join(', ')}</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>Progress</span>
+                        <span>{layer.progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${layer.progress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      <p><strong>Metrics:</strong> {layer.metrics.join(', ')}</p>
+                      <p><strong>Dimensions:</strong> {layer.dimensions.join(', ')}</p>
                     </div>
                   </Card>
                 ))}
