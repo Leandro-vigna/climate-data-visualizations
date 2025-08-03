@@ -184,6 +184,20 @@ export default function SideNav() {
                       </NavigationMenuLink>
                     </Link>
 
+                    {/* Master Spreadsheet / Collections */}
+                    <Link href="/dashboard/analytics/collections" legacyBehavior passHref>
+                      <NavigationMenuLink
+                        className={cn(
+                          "flex items-center space-x-2 px-3 py-1 rounded text-sm transition-colors block",
+                          pathname === '/dashboard/analytics/collections'
+                            ? "bg-primary/20 text-primary font-medium"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        )}
+                      >
+                        <span>• Master Spreadsheet</span>
+                      </NavigationMenuLink>
+                    </Link>
+
                     {/* Saved Data Tools */}
                     {savedDataTools.map((tool) => (
                       <Link key={tool.id} href={`/dashboard/analytics/tool/${tool.id}`} legacyBehavior passHref>

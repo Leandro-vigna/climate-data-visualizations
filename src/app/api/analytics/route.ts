@@ -7,10 +7,6 @@ interface PageViewData {
   date: string;
   page: string;
   pageViews: number;
-  uniquePageViews: number;
-  country: string;
-  source: string;
-  medium: string;
 }
 
 // MOCK FUNCTION DISABLED - Only real Google Analytics data allowed
@@ -58,16 +54,11 @@ function generateMockAnalyticsData_DISABLED(days: number): PageViewData[] {
     pages.forEach(page => {
       // Generate one record per page per day with realistic page views
       const pageViews = Math.floor(Math.random() * 500) + 50;
-      const uniqueViews = Math.floor(pageViews * (0.7 + Math.random() * 0.3)); // 70-100% of page views
       
       data.push({
         date: dateStr,
         page,
-        pageViews,
-        uniquePageViews: uniqueViews,
-        country: ['United States', 'United Kingdom', 'Germany', 'Canada', 'Australia', 'France', 'Netherlands', 'Sweden', 'Norway', 'Denmark'][Math.floor(Math.random() * 10)],
-        source: ['google', 'direct', 'twitter.com', 'linkedin.com', 'newsletter', 'facebook.com', 'reddit.com', 'bing', 'yahoo', 'organic'][Math.floor(Math.random() * 10)],
-        medium: ['organic', '(none)', 'referral', 'social', 'email', 'cpc', 'display', 'affiliate'][Math.floor(Math.random() * 8)]
+        pageViews
       });
     });
   }
@@ -142,7 +133,7 @@ async function fetchGoogleAnalyticsDataOAuth(days: number, accessToken: string, 
               { name: 'date' },
               { name: 'pagePath' }
             ],
-            limit: 10, // Reduced for faster testing
+            limit: 10000, // Get all data - no artificial limits
             keepEmptyRows: true
           }
         });
@@ -157,11 +148,7 @@ async function fetchGoogleAnalyticsDataOAuth(days: number, accessToken: string, 
         const data: PageViewData[] = response.data.rows.map(row => ({
           date: row.dimensionValues![0].value!,
           page: row.dimensionValues![1].value!,
-          pageViews: parseInt(row.metricValues![0].value! || '0'),
-          uniquePageViews: parseInt(row.metricValues![0].value! || '0'), // Using same value for now
-          country: 'United States', // Real country data
-          source: 'google.com', // Real source data
-          medium: 'organic' // Real medium data
+          pageViews: parseInt(row.metricValues![0].value! || '0')
         }));
 
         console.log(`✅ Successfully fetched ${data.length} records from Google Analytics GA4 via OAuth`);
@@ -317,11 +304,7 @@ async function fetchGoogleAnalyticsData(days: number, toolViewId?: string): Prom
         const data: PageViewData[] = response.data.rows.map(row => ({
           date: row.dimensionValues[0].value, // Already in YYYY-MM-DD format in GA4
           page: row.dimensionValues[1].value,
-          pageViews: parseInt(row.metricValues[0].value || '0'),
-          uniquePageViews: parseInt(row.metricValues[0].value || '0'), // Using same value for now
-          country: 'Unknown', // Simplified for testing
-          source: 'ga4-data',
-          medium: 'organic'
+          pageViews: parseInt(row.metricValues[0].value || '0')
         }));
 
         console.log(`✅ Successfully fetched ${data.length} records from Google Analytics GA4`);

@@ -39,10 +39,6 @@ interface PageViewData {
   date: string;
   page: string;
   pageViews: number;
-  uniquePageViews: number;
-  country: string;
-  source: string;
-  medium: string;
 }
 
 export default function DataPreviewPage() {
@@ -64,6 +60,7 @@ export default function DataPreviewPage() {
   const [dataSource, setDataSource] = useState<'google-analytics' | 'mock-data'>('google-analytics');
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [tokenWarning, setTokenWarning] = useState<{show: boolean, message: string}>({show: false, message: ''});
 
   const [collectionSummary, setCollectionSummary] = useState({
     timePeriod: '',
@@ -141,6 +138,23 @@ export default function DataPreviewPage() {
           }));
           setError(null);
           setAuthRequired(false);
+          
+          // Check for token limit warnings  
+          const timePeriod = searchParams?.get('timePeriod') || '30';
+          if (result.tokenWarning) {
+            setTokenWarning({
+              show: true,
+              message: result.tokenWarning
+            });
+          } else if (result.data && result.data.length < (parseInt(timePeriod) * 10)) {
+            // Heuristic: if we got way fewer records than expected, might be hitting limits
+            setTokenWarning({
+              show: true,
+              message: `Warning: Only received ${result.data.length} records for ${timePeriod} days. This might indicate API rate limits or incomplete data. You may not have complete data for the selected period.`
+            });
+          } else {
+            setTokenWarning({show: false, message: ''});
+          }
         } else {
           console.error('Analytics API returned error:', result.error);
           throw new Error(result.error || 'Failed to fetch real data from Google Analytics.');
@@ -212,16 +226,11 @@ export default function DataPreviewPage() {
         
         for (let j = 0; j < recordsPerPage; j++) {
           const pageViews = Math.floor(Math.random() * 500) + 50;
-          const uniqueViews = Math.floor(pageViews * (0.7 + Math.random() * 0.3)); // 70-100% of page views
           
           mockData.push({
             date: dateStr,
             page,
-            pageViews,
-            uniquePageViews: uniqueViews,
-            country: ['United States', 'United Kingdom', 'Germany', 'Canada', 'Australia', 'France', 'Netherlands', 'Sweden', 'Norway', 'Denmark'][Math.floor(Math.random() * 10)],
-            source: ['google', 'direct', 'twitter.com', 'linkedin.com', 'newsletter', 'facebook.com', 'reddit.com', 'bing', 'yahoo', 'organic'][Math.floor(Math.random() * 10)],
-            medium: ['organic', '(none)', 'referral', 'social', 'email', 'cpc', 'display', 'affiliate'][Math.floor(Math.random() * 8)]
+            pageViews
           });
         }
       });
@@ -229,6 +238,43 @@ export default function DataPreviewPage() {
 
     setPreviewData(mockData);
     setCollectionSummary(prev => ({ ...prev, totalRecords: mockData.length }));
+  };
+
+  // Function to download full dataset as CSV
+  const handleDownloadFullDataset = () => {
+    try {
+      if (!previewData || previewData.length === 0) {
+        alert('No data available to download');
+        return;
+      }
+
+      // Create CSV content
+      const headers = ['Date', 'Page', 'Page Views'];
+      const csvContent = [
+        headers.join(','),
+        ...previewData.map(row => [
+          row.date,
+          `"${row.page}"`, // Quote page paths to handle commas
+          row.pageViews
+        ].join(','))
+      ].join('\n');
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${dataTool?.name || 'analytics'}-full-dataset-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      alert(`Successfully downloaded ${previewData.length} records to CSV file!`);
+    } catch (error) {
+      console.error('Error downloading CSV:', error);
+      alert('Failed to download CSV file');
+    }
   };
 
   const handleConfirmData = async () => {
@@ -270,7 +316,8 @@ export default function DataPreviewPage() {
       }
 
       alert(`Data collection confirmed and stored permanently!\n\nSaved ${previewData.length} records to the database.`);
-      router.push(`/dashboard/analytics/tool/${toolId}`);
+      // Redirect to collections/master spreadsheet view
+      router.push(`/dashboard/analytics/collections`);
       
     } catch (error) {
       console.error('Error saving data:', error);
@@ -380,6 +427,29 @@ export default function DataPreviewPage() {
         </Card>
       )}
 
+      {/* Token Warning */}
+      {tokenWarning.show && (
+        <Card className="mb-6 border-yellow-200 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2 text-yellow-700">
+              <AlertCircle className="w-5 h-5" />
+              <span>API Limit Warning</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-yellow-700">{tokenWarning.message}</p>
+            <div className="mt-3 space-y-2">
+              <p className="text-yellow-600 text-sm font-medium">Recommendations:</p>
+              <ul className="text-yellow-600 text-sm list-disc list-inside space-y-1">
+                <li>Try reducing the time period (7 days instead of 30)</li>
+                <li>Wait for API quota to reset (typically daily)</li>
+                <li>Consider collecting data in smaller batches</li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Collection Summary */}
       <Card className="mb-6">
         <CardHeader>
@@ -481,15 +551,15 @@ export default function DataPreviewPage() {
             <XCircle className="w-4 h-4 mr-2" />
             Reject Data
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleDownloadFullDataset}>
             <Download className="w-4 h-4 mr-2" />
-            Download Sample
+            Download Full Dataset
           </Button>
         </div>
         
         <Button onClick={handleConfirmData} size="lg">
           <CheckCircle className="w-4 h-4 mr-2" />
-          Confirm & Store Data
+          Save Collected Data & Merge to Master Spreadsheet
         </Button>
       </div>
     </div>
