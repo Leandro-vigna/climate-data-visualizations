@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { redirect, useRouter } from 'next/navigation';
+import { redirect, useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,37 +72,37 @@ const getDataSegments = (allDates: string[], layer: {dates: string[]}) => {
   return segments;
 };
 
-function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps & { allData: PageViewData[] }) {
+function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps & { allData: UnifiedAnalyticsData[] }) {
   // FINAL FIX: Filter actual merged data to match blue bar logic exactly
   const getActualDataDates = () => {
     if (!allData || allData.length === 0) {
       return dataLayers.pageviews?.dates?.sort() || [];
     }
     
-    // Group merged data by date and sum pageviews
-    const pageViewsByDate: { [date: string]: number } = {};
+    // Group merged data by date and sum metric values
+    const metricsByDate: { [date: string]: number } = {};
     allData.forEach(record => {
-      if (!pageViewsByDate[record.date]) {
-        pageViewsByDate[record.date] = 0;
+      if (!metricsByDate[record.date]) {
+        metricsByDate[record.date] = 0;
       }
-      pageViewsByDate[record.date] += record.pageViews;
+      metricsByDate[record.date] += record.metric_value;
     });
     
-    // Only include dates with actual pageviews > 0 (same logic as blue bar)
-    const datesWithPageviews = Object.keys(pageViewsByDate)
-      .filter(date => pageViewsByDate[date] > 0)
+    // Only include dates with actual metric values > 0 (same logic as blue bar)
+    const datesWithData = Object.keys(metricsByDate)
+      .filter(date => metricsByDate[date] > 0)
       .sort();
     
     console.log('🔧 FINAL FIX - ACTUAL DATA FILTERING:', {
       totalMergedRecords: allData.length,
-      allUniqueDates: Object.keys(pageViewsByDate).length,
-      datesWithPageviews: datesWithPageviews.length,
-      firstDateWithData: datesWithPageviews[0],
-      lastDateWithData: datesWithPageviews[datesWithPageviews.length - 1],
-      filteredOutDates: Object.keys(pageViewsByDate).filter(date => pageViewsByDate[date] === 0)
+      allUniqueDates: Object.keys(metricsByDate).length,
+      datesWithData: datesWithData.length,
+      firstDateWithData: datesWithData[0],
+      lastDateWithData: datesWithData[datesWithData.length - 1],
+      filteredOutDates: Object.keys(metricsByDate).filter(date => metricsByDate[date] === 0)
     });
     
-    return datesWithPageviews;
+    return datesWithData;
   };
 
   const allDates = getActualDataDates();
@@ -112,12 +112,12 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   // DEBUG: INVESTIGATE WHY BLUE BAR CALCULATION IS WRONG
   const blueBarSegments = getDataSegments(allDates, dataLayers.pageviews || {dates: []});
   
-  // Check actual pageviews distribution by date
-  const pageviewsByDate: { [date: string]: number } = {};
+  // Check actual metric distribution by date
+  const metricsByDate: { [date: string]: number } = {};
   if (allData) {
     allData.forEach(record => {
-      if (!pageviewsByDate[record.date]) pageviewsByDate[record.date] = 0;
-      pageviewsByDate[record.date] += record.pageViews;
+      if (!metricsByDate[record.date]) metricsByDate[record.date] = 0;
+      metricsByDate[record.date] += record.metric_value;
     });
   }
   
@@ -127,10 +127,10 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
     pageviewLayerDates: dataLayers.pageviews?.dates?.length || 0,
     blueBarSegments: blueBarSegments,
     blueBarStartsAt: blueBarSegments[0]?.start || 0,
-    actualPageviewsDistribution: Object.keys(pageviewsByDate)
+    actualMetricsDistribution: Object.keys(metricsByDate)
       .sort()
       .slice(0, 10)
-      .map(date => ({ date, pageviews: pageviewsByDate[date] })),
+      .map(date => ({ date, metrics: metricsByDate[date] })),
     issue: 'Visual blue bar at ~25% but calculation shows 0%'
   });
   
@@ -145,12 +145,13 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   // Define all possible data layers
   const layerDefinitions = [
     { key: 'pageviews', label: 'Pageviews', icon: Eye, color: 'bg-blue-500' },
-    { key: 'users', label: 'Users', icon: Users, color: 'bg-green-500' },
-    { key: 'referrals', label: 'Referrals', icon: Globe, color: 'bg-purple-500' },
+    { key: 'geographic', label: 'Countries', icon: Globe, color: 'bg-green-500' },
+    { key: 'users', label: 'Users', icon: Users, color: 'bg-emerald-500' },
+    { key: 'referrals', label: 'Referrals', icon: TrendingUp, color: 'bg-purple-500' },
     { key: 'sessions', label: 'Sessions', icon: MousePointer, color: 'bg-orange-500' },
     { key: 'downloads', label: 'Downloads', icon: Download, color: 'bg-red-500' },
-    { key: 'subscribers', label: 'Subscribers', icon: Users, color: 'bg-teal-500' },
-    { key: 'events', label: 'Events', icon: TrendingUp, color: 'bg-pink-500' },
+    { key: 'subscribers', label: 'Subscribers', icon: Zap, color: 'bg-teal-500' },
+    { key: 'events', label: 'Events', icon: Calendar, color: 'bg-pink-500' },
   ];
 
   // Format date for display with proper year format
@@ -307,6 +308,53 @@ interface PageViewData {
   pageViews: number;
 }
 
+interface GeographicData {
+  date: string;
+  country: string;
+  activeUsers: number;
+}
+
+// Unified Long Format Interface for Master Spreadsheet
+interface UnifiedAnalyticsData {
+  date: string;
+  metric_type: string;      // "pageviews", "users", "sessions", etc.
+  dimension_type: string;   // "page", "country", "source", etc.
+  dimension_value: string;  // "/home", "United States", "google", etc.
+  metric_value: number;     // The actual numeric value
+}
+
+// Conversion function to transform any data type to unified format
+function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnalyticsData[] {
+  const unifiedData: UnifiedAnalyticsData[] = [];
+  
+  // Determine data type based on dataLayers
+  const isGeographic = dataLayers.includes('geographic');
+  
+  data.forEach(record => {
+    if (isGeographic && record.country !== undefined) {
+      // Geographic data: country -> users
+      unifiedData.push({
+        date: record.date,
+        metric_type: 'users',
+        dimension_type: 'country',
+        dimension_value: record.country,
+        metric_value: record.activeUsers || 0
+      });
+    } else if (record.page !== undefined) {
+      // Pageview data: page -> pageviews
+      unifiedData.push({
+        date: record.date,
+        metric_type: 'pageviews',
+        dimension_type: 'page',
+        dimension_value: record.page,
+        metric_value: record.pageViews || 0
+      });
+    }
+  });
+  
+  return unifiedData;
+}
+
 interface AnalyticsCollection {
   id: string;
   toolId: string;
@@ -330,10 +378,13 @@ export default function AnalyticsCollectionsPage() {
   });
 
   const router = useRouter();
+  const params = useParams();
+  const toolId = params.toolId as string;
+  
   const [collections, setCollections] = useState<AnalyticsCollection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [allData, setAllData] = useState<PageViewData[]>([]);
+  const [allData, setAllData] = useState<UnifiedAnalyticsData[]>([]);
   const [duplicateStats, setDuplicateStats] = useState({ total: 0, unique: 0, duplicates: 0 });
   const [dataLayers, setDataLayers] = useState<{[key: string]: {count: number, dateRange: string, dates: string[]}}>({});
   const [quotaInfo, setQuotaInfo] = useState<{remaining: number, resetTime: string, percentage: number} | null>(null);
@@ -365,7 +416,10 @@ export default function AnalyticsCollectionsPage() {
             
             // Track data layers with detailed date tracking
             const layers = Array.isArray(collection.dataLayers) ? collection.dataLayers : ['pageviews'];
-            layers.forEach(layer => {
+            layers.forEach(originalLayer => {
+              // Use original layer names directly (no mapping needed)
+              const layer = originalLayer;
+              
               if (!layerStats[layer]) {
                 layerStats[layer] = { count: 0, dateRange: '', dates: [] };
               }
@@ -382,8 +436,11 @@ export default function AnalyticsCollectionsPage() {
               }
             });
 
-            collection.data.forEach((record: PageViewData) => {
-              const key = `${record.date}-${record.page}`;
+            // Convert collection data to unified format
+            const unifiedCollectionData = convertToUnifiedFormat(collection.data, layers);
+            
+            unifiedCollectionData.forEach((record: UnifiedAnalyticsData) => {
+              const key = `${record.date}-${record.metric_type}-${record.dimension_type}-${record.dimension_value}`;
               if (seenKeys.has(key)) {
                 duplicateCount++;
                 // Skip duplicates for now - we'll add user choice later
@@ -396,10 +453,24 @@ export default function AnalyticsCollectionsPage() {
         });
 
         // Update counts in layerStats to reflect unique records only
+        // Count all records that belong to each layer's date range
         Object.keys(layerStats).forEach(layer => {
-          // Count unique records for this layer by counting mergedData records that exist within the date range of this layer
           const layerDateSet = new Set(layerStats[layer].dates);
-          layerStats[layer].count = mergedData.filter(record => layerDateSet.has(record.date)).length;
+          
+          if (layer === 'geographic') {
+            // Count geographic records (users by country) within this layer's date range
+            layerStats[layer].count = mergedData.filter(record => 
+              record.metric_type === 'users' && layerDateSet.has(record.date)
+            ).length;
+          } else if (layer === 'pageviews') {
+            // Count pageview records within this layer's date range
+            layerStats[layer].count = mergedData.filter(record => 
+              record.metric_type === 'pageviews' && layerDateSet.has(record.date)
+            ).length;
+          } else {
+            // For other layers, count by date range only
+            layerStats[layer].count = mergedData.filter(record => layerDateSet.has(record.date)).length;
+          }
         });
 
         setAllData(mergedData);
@@ -446,14 +517,16 @@ export default function AnalyticsCollectionsPage() {
         return;
       }
 
-      // Create CSV content
-      const headers = ['Date', 'Page', 'Page Views'];
+      // Create CSV content with unified long format
+      const headers = ['Date', 'Metric Type', 'Dimension Type', 'Dimension Value', 'Metric Value'];
       const csvContent = [
         headers.join(','),
         ...allData.map(row => [
           row.date,
-          `"${row.page}"`, // Quote page paths to handle commas
-          row.pageViews
+          row.metric_type,
+          row.dimension_type,
+          `"${row.dimension_value}"`, // Quote dimension values to handle commas
+          row.metric_value
         ].join(','))
       ].join('\n');
 
@@ -493,7 +566,7 @@ export default function AnalyticsCollectionsPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button onClick={() => router.push('/dashboard/analytics')}>
+            <Button onClick={() => router.push(`/dashboard/analytics/tool/${toolId}`)}>
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Climate Watch
             </Button>
@@ -604,7 +677,7 @@ export default function AnalyticsCollectionsPage() {
           {collections.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">No collections found. Start by collecting some data!</p>
-              <Button onClick={() => router.push('/dashboard/analytics')} className="mt-4">
+              <Button onClick={() => router.push(`/dashboard/analytics/tool/${toolId}`)} className="mt-4">
                 Start Data Collection
               </Button>
             </div>
@@ -661,21 +734,27 @@ export default function AnalyticsCollectionsPage() {
           ) : (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Page</TableHead>
-                    <TableHead>Page Views</TableHead>
-                  </TableRow>
-                </TableHeader>
+                              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Metric Type</TableHead>
+                  <TableHead>Dimension Type</TableHead>
+                  <TableHead>Dimension Value</TableHead>
+                  <TableHead>Metric Value</TableHead>
+                </TableRow>
+              </TableHeader>
                 <TableBody>
                   {allData.map((row, index) => (
                     <TableRow key={index}>
                       <TableCell className="font-medium">{row.date}</TableCell>
-                      <TableCell className="max-w-xs truncate" title={row.page}>
-                        {row.page}
+                      <TableCell className="max-w-xs truncate" title={row.metric_type}>
+                        {row.metric_type}
                       </TableCell>
-                      <TableCell>{row.pageViews.toLocaleString()}</TableCell>
+                      <TableCell>{row.dimension_type}</TableCell>
+                      <TableCell className="max-w-xs truncate" title={row.dimension_value}>
+                        {row.dimension_value}
+                      </TableCell>
+                      <TableCell>{row.metric_value?.toLocaleString() || 0}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

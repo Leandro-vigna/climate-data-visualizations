@@ -1,6 +1,6 @@
 import { Inter, Roboto, Open_Sans, Source_Sans_3 } from 'next/font/google';
 import { ThemeProvider } from '@/lib/contexts/ThemeContext';
-import { ThemeBar } from './components/ThemeBar';
+
 import "./globals.css";
 import AuthHeader from "../components/AuthHeader";
 import AuthProvider from "../components/AuthProvider";
@@ -29,7 +29,6 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${roboto.variable} ${openSans.variable} ${sourceSans.variable}`}>
         <ThemeProvider>
-          <ThemeBar />
           <AuthProvider>
             <AuthHeader />
             {children}

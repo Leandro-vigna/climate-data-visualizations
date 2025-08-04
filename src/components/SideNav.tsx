@@ -184,34 +184,39 @@ export default function SideNav() {
                       </NavigationMenuLink>
                     </Link>
 
-                    {/* Master Spreadsheet / Collections */}
-                    <Link href="/dashboard/analytics/collections" legacyBehavior passHref>
-                      <NavigationMenuLink
-                        className={cn(
-                          "flex items-center space-x-2 px-3 py-1 rounded text-sm transition-colors block",
-                          pathname === '/dashboard/analytics/collections'
-                            ? "bg-primary/20 text-primary font-medium"
-                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        )}
-                      >
-                        <span>• Master Spreadsheet</span>
-                      </NavigationMenuLink>
-                    </Link>
+
 
                     {/* Saved Data Tools */}
                     {savedDataTools.map((tool) => (
-                      <Link key={tool.id} href={`/dashboard/analytics/tool/${tool.id}`} legacyBehavior passHref>
-                        <NavigationMenuLink
-                          className={cn(
-                            "flex items-center space-x-2 px-3 py-1 rounded text-sm transition-colors block",
-                            pathname === `/dashboard/analytics/tool/${tool.id}`
-                              ? "bg-primary/20 text-primary font-medium"
-                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                          )}
-                        >
-                          <span>• {tool.name}</span>
-                        </NavigationMenuLink>
-                      </Link>
+                      <div key={tool.id} className="space-y-1">
+                        {/* Main Tool Link */}
+                        <Link href={`/dashboard/analytics/tool/${tool.id}`} legacyBehavior passHref>
+                          <NavigationMenuLink
+                            className={cn(
+                              "flex items-center space-x-2 px-3 py-1 rounded text-sm transition-colors block",
+                              pathname === `/dashboard/analytics/tool/${tool.id}`
+                                ? "bg-primary/20 text-primary font-medium"
+                                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                            )}
+                          >
+                            <span>• {tool.name}</span>
+                          </NavigationMenuLink>
+                        </Link>
+                        
+                        {/* Master Spreadsheet Sub-item */}
+                        <Link href={`/dashboard/analytics/tool/${tool.id}/collections`} legacyBehavior passHref>
+                          <NavigationMenuLink
+                            className={cn(
+                              "flex items-center space-x-2 px-6 py-1 rounded text-xs transition-colors block ml-3",
+                              pathname === `/dashboard/analytics/tool/${tool.id}/collections`
+                                ? "bg-emerald-100 text-emerald-700 font-medium"
+                                : "text-muted-foreground/70 hover:bg-accent hover:text-accent-foreground"
+                            )}
+                          >
+                            <span>→ Master Spreadsheet</span>
+                          </NavigationMenuLink>
+                        </Link>
+                      </div>
                     ))}
                   </div>
                 )}

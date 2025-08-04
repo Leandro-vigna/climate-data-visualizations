@@ -157,7 +157,8 @@ export default function DataToolPage() {
     pageviews: true,
     users: false,
     traffic: false,
-    events: false
+    events: false,
+    geographic: false
   });
   const [isCollecting, setIsCollecting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -478,6 +479,36 @@ export default function DataToolPage() {
         </CardContent>
       </Card>
 
+      {/* Quick Access - Master Spreadsheet */}
+      <Card className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2 text-green-900">
+            <Database className="w-6 h-6" />
+            <span>Master Analytics Spreadsheet</span>
+          </CardTitle>
+          <p className="text-green-700">
+            View your complete consolidated analytics dataset with timeline visualization and download options.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-green-800">
+                <p className="font-medium">Progress: {dataTool.progress.masterSpreadsheet}%</p>
+                <p className="text-green-600">All collected data layers merged and deduplicated</p>
+              </div>
+            </div>
+            <Button 
+              onClick={() => router.push(`/dashboard/analytics/tool/${toolId}/collections`)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Database className="w-4 h-4 mr-2" />
+              View Master Spreadsheet
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Main Content Tabs */}
       <Tabs defaultValue="google-analytics" className="space-y-6">
         <TabsList className="grid w-full grid-cols-5">
@@ -674,6 +705,23 @@ export default function DataToolPage() {
                       <Label htmlFor="events" className="font-medium">Custom Events</Label>
                       <p className="text-sm text-muted-foreground">
                         Downloads, newsletter signups, tool interactions
+                      </p>
+                    </div>
+                    <Badge variant="outline">Optional</Badge>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="geographic" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.geographic}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, geographic: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="geographic" className="font-medium">Geographic Sessions</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Sessions per country per day with geographic insights
                       </p>
                     </div>
                     <Badge variant="outline">Optional</Badge>

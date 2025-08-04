@@ -41,6 +41,12 @@ interface PageViewData {
   pageViews: number;
 }
 
+interface GeographicData {
+  date: string;
+  country: string;
+  activeUsers: number;
+}
+
 export default function DataPreviewPage() {
   const { data: session, status } = useSession({
     required: true,
@@ -61,6 +67,7 @@ export default function DataPreviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [tokenWarning, setTokenWarning] = useState<{show: boolean, message: string}>({show: false, message: ''});
+  const [isGeographicData, setIsGeographicData] = useState(false);
 
   const [collectionSummary, setCollectionSummary] = useState({
     timePeriod: '',
@@ -68,6 +75,8 @@ export default function DataPreviewPage() {
     totalRecords: 0,
     dateRange: { start: '', end: '' }
   });
+
+
 
   // Fast fetch function - no retries, fail fast
   const fetchFast = async (url: string): Promise<Response> => {
@@ -110,6 +119,9 @@ export default function DataPreviewPage() {
     const timePeriod = searchParams?.get('timePeriod') || '30';
     const dataLayers = searchParams?.get('dataLayers')?.split(',') || ['pageviews'];
     
+    // Determine if we're showing geographic data
+    setIsGeographicData(dataLayers.includes('geographic'));
+    
     setCollectionSummary({
       timePeriod: `${timePeriod} days`,
       dataLayers,
@@ -123,7 +135,8 @@ export default function DataPreviewPage() {
     // Call the real analytics API - fail fast to identify the real issue
     try {
       console.log('🚀 Starting Google Analytics data collection...');
-      const response = await fetchFast(`/api/analytics?days=${timePeriod}&toolId=${toolId}`);
+      console.log('🔍 Data layers requested:', dataLayers);
+      const response = await fetchFast(`/api/analytics?days=${timePeriod}&toolId=${toolId}&dataLayers=${dataLayers.join(',')}`);
       
       if (response.ok) {
         const result = await response.json();
@@ -248,15 +261,30 @@ export default function DataPreviewPage() {
         return;
       }
 
-      // Create CSV content
-      const headers = ['Date', 'Page', 'Page Views'];
+      // Create CSV content based on data type
+      const headers = isGeographicData 
+        ? ['Date', 'Country', 'Active Users']
+        : ['Date', 'Page', 'Page Views'];
+      
       const csvContent = [
         headers.join(','),
-        ...previewData.map(row => [
-          row.date,
-          `"${row.page}"`, // Quote page paths to handle commas
-          row.pageViews
-        ].join(','))
+        ...previewData.map(row => {
+          if (isGeographicData) {
+            const geoRow = row as any;
+            return [
+              geoRow.date,
+              `"${geoRow.country}"`, // Quote country names to handle commas
+              geoRow.activeUsers
+            ].join(',');
+          } else {
+            const pageRow = row as any;
+            return [
+              pageRow.date,
+              `"${pageRow.page}"`, // Quote page paths to handle commas  
+              pageRow.pageViews
+            ].join(',');
+          }
+        })
       ].join('\n');
 
       // Create and download file
@@ -316,8 +344,8 @@ export default function DataPreviewPage() {
       }
 
       alert(`Data collection confirmed and stored permanently!\n\nSaved ${previewData.length} records to the database.`);
-      // Redirect to collections/master spreadsheet view
-      router.push(`/dashboard/analytics/collections`);
+      // Redirect to collections/master spreadsheet view under this tool
+      router.push(`/dashboard/analytics/tool/${toolId}/collections`);
       
     } catch (error) {
       console.error('Error saving data:', error);
@@ -526,16 +554,16 @@ export default function DataPreviewPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Page</TableHead>
-                  <TableHead>Page Views</TableHead>
+                  <TableHead>{isGeographicData ? 'Country' : 'Page'}</TableHead>
+                  <TableHead>{isGeographicData ? 'Active Users' : 'Page Views'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {previewData.slice(0, 50).map((row, index) => (
                   <TableRow key={index}>
                     <TableCell className="font-medium">{row.date}</TableCell>
-                    <TableCell>{row.page}</TableCell>
-                    <TableCell>{row.pageViews.toLocaleString()}</TableCell>
+                    <TableCell>{isGeographicData ? (row as any).country : (row as any).page}</TableCell>
+                    <TableCell>{isGeographicData ? (row as any).activeUsers?.toLocaleString() : (row as any).pageViews?.toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
