@@ -153,15 +153,28 @@ export default function DataToolPage() {
   const [dataTool, setDataTool] = useState<DataTool | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTimePeriod, setSelectedTimePeriod] = useState<string>('30');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
+    return d.toISOString().split('T')[0];
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [useBatchedMode, setUseBatchedMode] = useState<boolean>(false);
   const [selectedDataLayers, setSelectedDataLayers] = useState({
     pageviews: true,
     users: false,
     traffic: false,
     events: false,
-    geographic: false
+    geographic: false,
+    landingpages: false
   });
   const [isCollecting, setIsCollecting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [preflight, setPreflight] = useState<{
+    rowCount: number | null;
+    quota: any | null;
+    recommended: boolean;
+    reason: string | null;
+  } | null>(null);
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
@@ -274,7 +287,7 @@ export default function DataToolPage() {
 
     const timePeriodText = selectedTimePeriod === '7' ? '7 days' : 
                           selectedTimePeriod === '30' ? '30 days' : 
-                          selectedTimePeriod === '90' ? '90 days' : 'custom range';
+                          selectedTimePeriod === '90' ? '90 days' : `${customStartDate} → ${customEndDate}`;
 
     const confirmationMessage = `Start data collection for "${dataTool.name}"?\n\n` +
       `Time Period: Last ${timePeriodText}\n` +
@@ -289,10 +302,15 @@ export default function DataToolPage() {
         setIsCollecting(false);
         
         // Navigate to preview page with collection parameters
-        const params = new URLSearchParams({
-          timePeriod: selectedTimePeriod,
-          dataLayers: selectedLayers.join(',')
-        });
+        const params = new URLSearchParams();
+        params.set('dataLayers', selectedLayers.join(','));
+        if (selectedTimePeriod === 'custom') {
+          params.set('startDate', customStartDate);
+          params.set('endDate', customEndDate);
+          if (useBatchedMode) params.set('batched', '1');
+        } else {
+          params.set('timePeriod', selectedTimePeriod);
+        }
         
         router.push(`/dashboard/analytics/tool/${toolId}/preview?${params.toString()}`);
       }, 2000);
@@ -636,6 +654,107 @@ export default function DataToolPage() {
                     <span className="text-xs">Custom Range</span>
                   </Button>
                 </div>
+                {selectedTimePeriod === 'custom' && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="flex flex-col">
+                      <Label className="text-sm mb-1">Start date</Label>
+                      <input
+                        type="date"
+                        className="border rounded px-3 py-2"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        max={customEndDate}
+                      />
+                    </div>
+                    <div className="flex flex-col">
+                      <Label className="text-sm mb-1">End date</Label>
+                      <input
+                        type="date"
+                        className="border rounded px-3 py-2"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        min={customStartDate}
+                        max={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    <label className="flex items-center space-x-2 mt-7">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4"
+                        checked={useBatchedMode}
+                        onChange={(e) => setUseBatchedMode(e.target.checked)}
+                      />
+                      <span className="text-sm">Batched mode (recommended for long ranges)</span>
+                    </label>
+                  </div>
+                )}
+
+              {/* Preflight panel */}
+              {selectedTimePeriod === 'custom' && (
+                <div className="mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        setPreflight(null);
+                        const url = new URL('/api/analytics', window.location.origin);
+                        url.searchParams.set('startDate', customStartDate);
+                        url.searchParams.set('endDate', customEndDate);
+                        url.searchParams.set('onlyPreflight', '1');
+                        // Use landingpages if selected to size correctly; else use pageviews
+                        const selectedLayers = Object.entries(selectedDataLayers)
+                          .filter(([_, s]) => s)
+                          .map(([k]) => k);
+                        url.searchParams.set('dataLayers', selectedLayers.join(',') || 'pageviews');
+                        const resp = await fetch(url.toString());
+                        const json = await resp.json();
+                        setPreflight({
+                          rowCount: json.rowCount ?? null,
+                          quota: json.quota ?? null,
+                          recommended: !!json.batchRecommended,
+                          reason: json.batchReason ?? null,
+                        });
+                      } catch (e) {
+                        console.log('Preflight failed', e);
+                        setPreflight({ rowCount: null, quota: null, recommended: false, reason: 'Preflight failed' });
+                      }
+                    }}
+                  >
+                    Estimate size & quota
+                  </Button>
+
+                  {preflight && (
+                    <div className="mt-2 text-xs text-muted-foreground space-y-1">
+                      <div>
+                        <span className="font-medium">Estimated rows:</span> {preflight.rowCount?.toLocaleString?.() || 'unknown'}
+                      </div>
+                      {preflight.quota && (
+                        <div>
+                          <span className="font-medium">Quota remaining:</span>
+                          {` hour=${preflight.quota.tokensPerHour?.remaining ?? 'n/a'}, day=${preflight.quota.tokensPerDay?.remaining ?? 'n/a'}`}
+                        </div>
+                      )}
+                      {preflight.recommended && (
+                        <div className="text-blue-700">
+                          Batch recommended: {preflight.reason || 'to reduce quota/row-limit risk'}
+                        </div>
+                      )}
+                      {preflight.recommended && (
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4"
+                            checked={useBatchedMode}
+                            onChange={(e) => setUseBatchedMode(e.target.checked)}
+                          />
+                          <span>Enable batched mode</span>
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               </div>
 
               {/* Data Layer Selection */}
@@ -726,6 +845,23 @@ export default function DataToolPage() {
                     </div>
                     <Badge variant="outline">Optional</Badge>
                   </div>
+
+                  <div className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="landingpages" 
+                      className="w-4 h-4"
+                      checked={selectedDataLayers.landingpages}
+                      onChange={(e) => setSelectedDataLayers(prev => ({ ...prev, landingpages: e.target.checked }))}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="landingpages" className="font-medium">Landing Page Traffic Breakdown</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Daily sessions by top 50 landing pages and their source/medium breakdown
+                      </p>
+                    </div>
+                    <Badge variant="outline">Optional</Badge>
+                  </div>
                 </div>
               </div>
 
@@ -810,10 +946,60 @@ export default function DataToolPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[400px] flex items-center justify-center bg-muted/20 rounded-lg">
-                <div className="text-center">
-                  <Download className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">Downloads data integration coming soon</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm">Link to Google Sheet (CSV or Sheet URL)</Label>
+                    <input id="downloads-sheet-url" className="border rounded px-3 py-2 w-full" placeholder="https://docs.google.com/spreadsheets/d/..." />
+                    <p className="text-xs text-muted-foreground">You can paste a CSV export link or a normal Sheets link. We will fetch and aggregate daily downloads.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm">Or upload CSV</Label>
+                    <input id="downloads-csv-file" type="file" accept=".csv,text/csv" className="border rounded px-3 py-2 w-full" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-sm">Start date</Label>
+                    <input id="downloads-start-date" type="date" className="border rounded px-3 py-2 w-full" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm">End date</Label>
+                    <input id="downloads-end-date" type="date" className="border rounded px-3 py-2 w-full" max={new Date().toISOString().split('T')[0]} />
+                  </div>
+                </div>
+
+                <div>
+                  <Button
+                    onClick={async () => {
+                      const url = (document.getElementById('downloads-sheet-url') as HTMLInputElement)?.value?.trim();
+                      const fileInput = document.getElementById('downloads-csv-file') as HTMLInputElement;
+                      const start = (document.getElementById('downloads-start-date') as HTMLInputElement)?.value || undefined;
+                      const end = (document.getElementById('downloads-end-date') as HTMLInputElement)?.value || undefined;
+                      let payload: any = { startDate: start, endDate: end };
+                      if (url) {
+                        payload.url = url;
+                      } else if (fileInput?.files && fileInput.files[0]) {
+                        const text = await fileInput.files[0].text();
+                        payload.csvContent = text;
+                      } else {
+                        alert('Provide a link or upload a CSV');
+                        return;
+                      }
+                      const resp = await fetch('/api/downloads/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                      const json = await resp.json();
+                      if (!resp.ok || !json.success) {
+                        alert(json.error || 'Failed to collect downloads');
+                        return;
+                      }
+                      // Store temporary preview in sessionStorage for preview screen
+                      sessionStorage.setItem('downloadsPreview', JSON.stringify(json));
+                      router.push(`/dashboard/analytics/tool/${toolId}/downloads/preview`);
+                    }}
+                  >
+                    Collect data
+                  </Button>
                 </div>
               </div>
             </CardContent>

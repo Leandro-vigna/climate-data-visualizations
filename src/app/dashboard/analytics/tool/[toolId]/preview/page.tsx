@@ -19,7 +19,8 @@ import {
   TrendingUp,
   Users,
   MousePointer,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle
 } from "lucide-react";
 
 interface DataTool {
@@ -68,6 +69,7 @@ export default function DataPreviewPage() {
   const [authRequired, setAuthRequired] = useState(false);
   const [tokenWarning, setTokenWarning] = useState<{show: boolean, message: string}>({show: false, message: ''});
   const [isGeographicData, setIsGeographicData] = useState(false);
+  const [isLandingPagesData, setIsLandingPagesData] = useState(false);
 
   const [collectionSummary, setCollectionSummary] = useState({
     timePeriod: '',
@@ -117,26 +119,48 @@ export default function DataPreviewPage() {
 
     // Get collection parameters from URL
     const timePeriod = searchParams?.get('timePeriod') || '30';
+    const startDateParam = searchParams?.get('startDate');
+    const endDateParam = searchParams?.get('endDate');
+    const batched = searchParams?.get('batched') === '1';
     const dataLayers = searchParams?.get('dataLayers')?.split(',') || ['pageviews'];
     
-    // Determine if we're showing geographic data
+    // Determine data type being displayed
     setIsGeographicData(dataLayers.includes('geographic'));
+    setIsLandingPagesData(dataLayers.includes('landingpages'));
     
     setCollectionSummary({
-      timePeriod: `${timePeriod} days`,
+      timePeriod: startDateParam && endDateParam ? `${startDateParam} → ${endDateParam}` : `${timePeriod} days`,
       dataLayers,
       totalRecords: 0,
-      dateRange: {
-        start: new Date(Date.now() - parseInt(timePeriod) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
-      }
+      dateRange: startDateParam && endDateParam
+        ? { start: startDateParam, end: endDateParam }
+        : {
+            start: new Date(Date.now() - parseInt(timePeriod) * 24 * 60 * 60 * 1000)
+              .toISOString()
+              .split('T')[0],
+            end: new Date().toISOString().split('T')[0],
+          },
     });
 
     // Call the real analytics API - fail fast to identify the real issue
     try {
       console.log('🚀 Starting Google Analytics data collection...');
       console.log('🔍 Data layers requested:', dataLayers);
-      const response = await fetchFast(`/api/analytics?days=${timePeriod}&toolId=${toolId}&dataLayers=${dataLayers.join(',')}`);
+      const apiUrl = (() => {
+        const base = new URL('/api/analytics', window.location.origin);
+        base.searchParams.set('toolId', toolId);
+        base.searchParams.set('dataLayers', dataLayers.join(','));
+        if (startDateParam && endDateParam) {
+          base.searchParams.set('startDate', startDateParam);
+          base.searchParams.set('endDate', endDateParam);
+          if (batched) base.searchParams.set('batched', '1');
+        } else {
+          base.searchParams.set('days', timePeriod);
+        }
+        return base.toString();
+      })();
+
+      const response = await fetchFast(apiUrl);
       
       if (response.ok) {
         const result = await response.json();
@@ -264,6 +288,8 @@ export default function DataPreviewPage() {
       // Create CSV content based on data type
       const headers = isGeographicData 
         ? ['Date', 'Country', 'Active Users']
+        : isLandingPagesData
+        ? ['Date', 'Landing Page', 'Source', 'Medium', 'Sessions']
         : ['Date', 'Page', 'Page Views'];
       
       const csvContent = [
@@ -275,6 +301,15 @@ export default function DataPreviewPage() {
               geoRow.date,
               `"${geoRow.country}"`, // Quote country names to handle commas
               geoRow.activeUsers
+            ].join(',');
+          } else if (isLandingPagesData) {
+            const landingRow = row as any;
+            return [
+              landingRow.date,
+              `"${landingRow.landingPage}"`, // Quote landing pages to handle commas
+              `"${landingRow.source}"`, // Quote source to handle commas
+              `"${landingRow.medium}"`, // Quote medium to handle commas
+              landingRow.sessions
             ].join(',');
           } else {
             const pageRow = row as any;
@@ -537,6 +572,32 @@ export default function DataPreviewPage() {
         </CardContent>
       </Card>
 
+      {/* Data Limitations Note - Show for Landing Page Traffic */}
+      {isLandingPagesData && (
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="pt-6">
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold text-amber-800 mb-2">Data Collection Limitations</h3>
+                <div className="text-sm text-amber-700 space-y-2">
+                  <p><strong>Landing Page Traffic Breakdown</strong> includes the following limitations to keep data volume manageable:</p>
+                  <ul className="list-disc list-inside space-y-1 ml-4">
+                    <li><strong>Top 50 Landing Pages:</strong> Only the top 50 landing pages by total sessions are included for each day</li>
+                    <li><strong>Session Threshold:</strong> Records with fewer than 5 sessions are excluded to reduce noise</li>
+                    <li><strong>Source/Medium Breakdown:</strong> Each landing page is broken down by source/medium combinations</li>
+                    <li><strong>Daily Aggregation:</strong> Data is grouped by date for time series analysis and spike detection</li>
+                  </ul>
+                  <p className="text-xs text-amber-600 mt-3">
+                    💡 This filtered approach ensures the most relevant traffic insights while staying within API limits
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Data Preview Table */}
       <Card className="mb-6">
         <CardHeader>
@@ -550,20 +611,50 @@ export default function DataPreviewPage() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
+            {/* Soft recommendation banner from API preflight */}
+            {(collectionSummary as any)?.batchRecommended && (
+              <div className="mb-3 p-3 rounded-md bg-blue-50 border border-blue-200 text-blue-900 text-sm">
+                Batch recommended for this range: {(collectionSummary as any)?.batchReason || 'reduce quota/row limit risk'}
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>{isGeographicData ? 'Country' : 'Page'}</TableHead>
-                  <TableHead>{isGeographicData ? 'Active Users' : 'Page Views'}</TableHead>
+                  <TableHead>
+                    {isGeographicData ? 'Country' : isLandingPagesData ? 'Landing Page' : 'Page'}
+                  </TableHead>
+                  {isLandingPagesData ? (
+                    <>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Medium</TableHead>
+                      <TableHead>Sessions</TableHead>
+                    </>
+                  ) : (
+                    <TableHead>{isGeographicData ? 'Active Users' : 'Page Views'}</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {previewData.slice(0, 50).map((row, index) => (
                   <TableRow key={index}>
                     <TableCell className="font-medium">{row.date}</TableCell>
-                    <TableCell>{isGeographicData ? (row as any).country : (row as any).page}</TableCell>
-                    <TableCell>{isGeographicData ? (row as any).activeUsers?.toLocaleString() : (row as any).pageViews?.toLocaleString()}</TableCell>
+                    <TableCell>
+                      {isGeographicData ? (row as any).country : 
+                       isLandingPagesData ? (row as any).landingPage : 
+                       (row as any).page}
+                    </TableCell>
+                    {isLandingPagesData ? (
+                      <>
+                        <TableCell>{(row as any).source}</TableCell>
+                        <TableCell>{(row as any).medium}</TableCell>
+                        <TableCell>{(row as any).sessions?.toLocaleString()}</TableCell>
+                      </>
+                    ) : (
+                      <TableCell>
+                        {isGeographicData ? (row as any).activeUsers?.toLocaleString() : (row as any).pageViews?.toLocaleString()}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

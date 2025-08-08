@@ -92,6 +92,11 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
     const datesWithData = Object.keys(metricsByDate)
       .filter(date => metricsByDate[date] > 0)
       .sort();
+    // Ensure today is included if we have data today
+    const today = new Date().toISOString().split('T')[0];
+    if (metricsByDate[today] && !datesWithData.includes(today)) {
+      datesWithData.push(today);
+    }
     
     console.log('🔧 FINAL FIX - ACTUAL DATA FILTERING:', {
       totalMergedRecords: allData.length,
@@ -146,9 +151,10 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   const layerDefinitions = [
     { key: 'pageviews', label: 'Pageviews', icon: Eye, color: 'bg-blue-500' },
     { key: 'geographic', label: 'Countries', icon: Globe, color: 'bg-green-500' },
+    { key: 'landingpages', label: 'Landing Pages', icon: TrendingUp, color: 'bg-purple-500' },
     { key: 'users', label: 'Users', icon: Users, color: 'bg-emerald-500' },
-    { key: 'referrals', label: 'Referrals', icon: TrendingUp, color: 'bg-purple-500' },
-    { key: 'sessions', label: 'Sessions', icon: MousePointer, color: 'bg-orange-500' },
+    { key: 'referrals', label: 'Referrals', icon: BarChart3, color: 'bg-orange-500' },
+    { key: 'sessions', label: 'Sessions', icon: MousePointer, color: 'bg-yellow-500' },
     { key: 'downloads', label: 'Downloads', icon: Download, color: 'bg-red-500' },
     { key: 'subscribers', label: 'Subscribers', icon: Zap, color: 'bg-teal-500' },
     { key: 'events', label: 'Events', icon: Calendar, color: 'bg-pink-500' },
@@ -321,6 +327,10 @@ interface UnifiedAnalyticsData {
   dimension_type: string;   // "page", "country", "source", etc.
   dimension_value: string;  // "/home", "United States", "google", etc.
   metric_value: number;     // The actual numeric value
+  // Normalized optional fields for advanced analysis
+  landing_page?: string;
+  source?: string;
+  medium?: string;
 }
 
 // Conversion function to transform any data type to unified format
@@ -329,6 +339,7 @@ function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnaly
   
   // Determine data type based on dataLayers
   const isGeographic = dataLayers.includes('geographic');
+  const isLandingPages = dataLayers.includes('landingpages');
   
   data.forEach(record => {
     if (isGeographic && record.country !== undefined) {
@@ -340,6 +351,18 @@ function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnaly
         dimension_value: record.country,
         metric_value: record.activeUsers || 0
       });
+    } else if (isLandingPages && record.landingPage !== undefined) {
+      // Landing page traffic data: landing page + source/medium -> sessions
+      unifiedData.push({
+        date: record.date,
+        metric_type: 'sessions',
+        dimension_type: 'landing_page_traffic',
+        dimension_value: `${record.landingPage} | ${record.source}/${record.medium}`,
+        metric_value: record.sessions || 0,
+        landing_page: record.landingPage,
+        source: record.source,
+        medium: record.medium
+      });
     } else if (record.page !== undefined) {
       // Pageview data: page -> pageviews
       unifiedData.push({
@@ -348,6 +371,15 @@ function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnaly
         dimension_type: 'page',
         dimension_value: record.page,
         metric_value: record.pageViews || 0
+      });
+    } else if (record.downloads !== undefined) {
+      // Downloads sheet data: aggregate per day -> downloads
+      unifiedData.push({
+        date: record.date,
+        metric_type: 'downloads',
+        dimension_type: 'dataset',
+        dimension_value: 'all',
+        metric_value: record.downloads || 0
       });
     }
   });
@@ -467,6 +499,11 @@ export default function AnalyticsCollectionsPage() {
             layerStats[layer].count = mergedData.filter(record => 
               record.metric_type === 'pageviews' && layerDateSet.has(record.date)
             ).length;
+          } else if (layer === 'landingpages') {
+            // Count landing page traffic records within this layer's date range
+            layerStats[layer].count = mergedData.filter(record => 
+              record.metric_type === 'sessions' && layerDateSet.has(record.date)
+            ).length;
           } else {
             // For other layers, count by date range only
             layerStats[layer].count = mergedData.filter(record => layerDateSet.has(record.date)).length;
@@ -517,17 +554,33 @@ export default function AnalyticsCollectionsPage() {
         return;
       }
 
-      // Create CSV content with unified long format
-      const headers = ['Date', 'Metric Type', 'Dimension Type', 'Dimension Value', 'Metric Value'];
+      // Create CSV content with unified long format + normalized landing page fields
+      const headers = ['Date', 'Metric Type', 'Dimension Type', 'Dimension Value', 'Metric Value', 'Landing Page', 'Source', 'Medium'];
       const csvContent = [
         headers.join(','),
-        ...allData.map(row => [
-          row.date,
-          row.metric_type,
-          row.dimension_type,
-          `"${row.dimension_value}"`, // Quote dimension values to handle commas
-          row.metric_value
-        ].join(','))
+        ...allData.map(row => {
+          const isLanding = row.dimension_type === 'landing_page_traffic';
+          let lp = row.landing_page;
+          let src = row.source;
+          let med = row.medium;
+          if (isLanding && (!lp || !src || !med) && typeof row.dimension_value === 'string') {
+            const [lpPart, smPart] = row.dimension_value.split(' | ');
+            const [sPart, mPart] = (smPart || '').split('/');
+            lp = lp || lpPart || '';
+            src = src || sPart || '';
+            med = med || mPart || '';
+          }
+          return [
+            row.date,
+            row.metric_type,
+            row.dimension_type,
+            `"${row.dimension_value}"`,
+            row.metric_value,
+            `"${lp || ''}"`,
+            `"${src || ''}"`,
+            `"${med || ''}"`
+          ].join(',');
+        })
       ].join('\n');
 
       // Create and download file
@@ -734,17 +787,33 @@ export default function AnalyticsCollectionsPage() {
           ) : (
             <div className="overflow-x-auto">
               <Table>
-                              <TableHeader>
+                <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Metric Type</TableHead>
                   <TableHead>Dimension Type</TableHead>
                   <TableHead>Dimension Value</TableHead>
                   <TableHead>Metric Value</TableHead>
+                  <TableHead className="whitespace-nowrap">Landing Page</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Medium</TableHead>
                 </TableRow>
               </TableHeader>
                 <TableBody>
-                  {allData.map((row, index) => (
+                  {allData.map((row, index) => {
+                    const isLanding = row.dimension_type === 'landing_page_traffic';
+                    let lp = row.landing_page;
+                    let src = row.source;
+                    let med = row.medium;
+                    if (isLanding && (!lp || !src || !med) && typeof row.dimension_value === 'string') {
+                      // Fallback parse from dimension_value: "<landing> | <source>/<medium>"
+                      const [lpPart, smPart] = row.dimension_value.split(' | ');
+                      const [sPart, mPart] = (smPart || '').split('/');
+                      lp = lp || lpPart || lp;
+                      src = src || sPart || src;
+                      med = med || mPart || med;
+                    }
+                    return (
                     <TableRow key={index}>
                       <TableCell className="font-medium">{row.date}</TableCell>
                       <TableCell className="max-w-xs truncate" title={row.metric_type}>
@@ -754,9 +823,12 @@ export default function AnalyticsCollectionsPage() {
                       <TableCell className="max-w-xs truncate" title={row.dimension_value}>
                         {row.dimension_value}
                       </TableCell>
-                      <TableCell>{row.metric_value?.toLocaleString() || 0}</TableCell>
+                    <TableCell>{row.metric_value?.toLocaleString() || 0}</TableCell>
+                      <TableCell className="max-w-xs truncate" title={lp || ''}>{lp || '-'}</TableCell>
+                      <TableCell>{src || '-'}</TableCell>
+                      <TableCell>{med || '-'}</TableCell>
                     </TableRow>
-                  ))}
+                   )})}
                 </TableBody>
               </Table>
             </div>
