@@ -23,6 +23,7 @@ import {
   MousePointer,
   AlertTriangle
 } from "lucide-react";
+import ThemedTooltip from '@/components/ThemedTooltip';
 
 // Timeline Tracker Component
 interface DataTimelineTrackerProps {
@@ -31,26 +32,46 @@ interface DataTimelineTrackerProps {
 
 // Calculate data segments for a layer across the master timeline - MOVED BEFORE COMPONENT
 const getDataSegments = (allDates: string[], layer: {dates: string[]}) => {
-  if (allDates.length === 0 || layer.dates.length === 0) return [];
+  if (allDates.length === 0 || layer.dates.length === 0) return [] as any[];
   
   // Create a set of dates this layer has data for
-  const layerDatesSet = new Set(layer.dates);
+  const normalize = (s: string | undefined | null): string | null => {
+    if (!s) return null;
+    if (/^\d{8}$/.test(s)) {
+      const y = parseInt(s.slice(0,4));
+      const m = parseInt(s.slice(4,6)) - 1;
+      const d = parseInt(s.slice(6,8));
+      const dt = new Date(Date.UTC(y, m, d));
+      if (isNaN(dt.getTime())) return null;
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const [yy,mm,dd] = s.split('-').map((p)=>parseInt(p));
+      const dt = new Date(Date.UTC(yy, mm-1, dd));
+      if (isNaN(dt.getTime())) return null;
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+    }
+    const dt = new Date(s);
+    if (isNaN(dt.getTime())) return null;
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+  };
+  const layerDatesSet = new Set((layer.dates || []).map(normalize).filter(Boolean) as string[]);
   
   // Calculate segments across the master timeline
-  const segments = [];
-  let currentSegment = null;
+  const segments: any[] = [];
+  let currentSegment: any = null;
   
   for (let i = 0; i < allDates.length; i++) {
     const date = allDates[i];
     const hasData = layerDatesSet.has(date);
     // Fix division by zero when only one date
     const position = allDates.length === 1 ? 0 : (i / (allDates.length - 1)) * 100;
-    const width = 100 / allDates.length; // Width of each day
+    const width = allDates.length > 1 ? (1 / (allDates.length - 1)) * 100 : 100; // exact per-day width
     
     if (hasData) {
       if (!currentSegment) {
         // Start new segment
-        currentSegment = { start: position, width: width };
+        currentSegment = { start: position, width: width, startIndex: i };
       } else {
         // Extend current segment
         currentSegment.width += width;
@@ -58,7 +79,12 @@ const getDataSegments = (allDates: string[], layer: {dates: string[]}) => {
     } else {
       if (currentSegment) {
         // End current segment and add to list
-        segments.push(currentSegment);
+        segments.push({
+          ...currentSegment,
+          endIndex: i - 1,
+          startDate: allDates[currentSegment.startIndex],
+          endDate: allDates[i - 1]
+        });
         currentSegment = null;
       }
     }
@@ -66,48 +92,97 @@ const getDataSegments = (allDates: string[], layer: {dates: string[]}) => {
   
   // Add final segment if exists
   if (currentSegment) {
-    segments.push(currentSegment);
+    segments.push({
+      ...currentSegment,
+      endIndex: allDates.length - 1,
+      startDate: allDates[currentSegment.startIndex],
+      endDate: allDates[allDates.length - 1]
+    });
   }
   
   return segments;
 };
 
 function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps & { allData: UnifiedAnalyticsData[] }) {
-  // FINAL FIX: Filter actual merged data to match blue bar logic exactly
+  // Custom tooltip state (position + content)
+  const [tooltip, setTooltip] = useState<{x: number; y: number; title: string; info?: string} | null>(null);
+  const handleMouseMove = (e: React.MouseEvent, title: string, info?: string) => {
+    setTooltip({ x: e.clientX, y: e.clientY, title, info });
+  };
+  const handleMouseLeave = () => setTooltip(null);
+  // Parse any date string to canonical YYYY-MM-DD (UTC). Returns null if invalid.
+  function normalizeToISO(dateStr: string | undefined | null): string | null {
+    if (!dateStr) return null;
+    // YYYYMMDD
+    if (/^\d{8}$/.test(dateStr)) {
+      const y = parseInt(dateStr.slice(0, 4));
+      const m = parseInt(dateStr.slice(4, 6)) - 1;
+      const d = parseInt(dateStr.slice(6, 8));
+      const dt = new Date(Date.UTC(y, m, d));
+      if (isNaN(dt.getTime())) return null;
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    }
+    // YYYY-M-D or YYYY-MM-DD
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dateStr)) {
+      const [yy, mm, dd] = dateStr.split('-').map((p) => parseInt(p));
+      const dt = new Date(Date.UTC(yy, mm - 1, dd));
+      if (isNaN(dt.getTime())) return null;
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    }
+    // Fallback generic parse
+    const dt = new Date(dateStr);
+    if (isNaN(dt.getTime())) return null;
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+  }
+
+  // Build a continuous, day-by-day master timeline from the earliest to latest date found
   const getActualDataDates = () => {
-    if (!allData || allData.length === 0) {
-      return dataLayers.pageviews?.dates?.sort() || [];
+    const msInDay = 24 * 60 * 60 * 1000;
+    let minISO: string | null = null;
+    let maxISO: string | null = null;
+
+    if (allData && allData.length > 0) {
+      const dates = Array.from(new Set(allData.map(d => normalizeToISO(d.date)).filter(Boolean) as string[])).sort();
+      minISO = dates[0] || null;
+      maxISO = dates[dates.length - 1] || null;
     }
-    
-    // Group merged data by date and sum metric values
-    const metricsByDate: { [date: string]: number } = {};
-    allData.forEach(record => {
-      if (!metricsByDate[record.date]) {
-        metricsByDate[record.date] = 0;
-      }
-      metricsByDate[record.date] += record.metric_value;
-    });
-    
-    // Only include dates with actual metric values > 0 (same logic as blue bar)
-    const datesWithData = Object.keys(metricsByDate)
-      .filter(date => metricsByDate[date] > 0)
-      .sort();
-    // Ensure today is included if we have data today
-    const today = new Date().toISOString().split('T')[0];
-    if (metricsByDate[today] && !datesWithData.includes(today)) {
-      datesWithData.push(today);
+
+    // If still missing, scan all available layer date arrays and compute global min/max
+    if (!minISO || !maxISO) {
+      let globalMin: string | null = null;
+      let globalMax: string | null = null;
+      Object.values(dataLayers || {}).forEach((layer: any) => {
+        const arrRaw: string[] | undefined = layer?.dates;
+        const arr = (arrRaw || []).map((d) => normalizeToISO(d)).filter(Boolean) as string[];
+        if (arr && arr.length > 0) {
+          const sorted = [...arr].sort();
+          const localMin = sorted[0];
+          const localMax = sorted[sorted.length - 1];
+          if (!globalMin || localMin < globalMin) globalMin = localMin;
+          if (!globalMax || localMax > globalMax) globalMax = localMax;
+        }
+      });
+      minISO = minISO || globalMin;
+      maxISO = maxISO || globalMax;
     }
-    
-    console.log('🔧 FINAL FIX - ACTUAL DATA FILTERING:', {
-      totalMergedRecords: allData.length,
-      allUniqueDates: Object.keys(metricsByDate).length,
-      datesWithData: datesWithData.length,
-      firstDateWithData: datesWithData[0],
-      lastDateWithData: datesWithData[datesWithData.length - 1],
-      filteredOutDates: Object.keys(metricsByDate).filter(date => metricsByDate[date] === 0)
-    });
-    
-    return datesWithData;
+
+    if (!minISO || !maxISO) return [];
+
+    // Safety: if min > max, swap
+    if (minISO > maxISO) {
+      const tmp = minISO; minISO = maxISO; maxISO = tmp;
+    }
+
+    const start = new Date(minISO + 'T00:00:00Z');
+    const end = new Date(maxISO + 'T00:00:00Z');
+    const out: string[] = [];
+    for (let t = start.getTime(); t <= end.getTime(); t += msInDay) {
+      const d = new Date(t);
+      const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      out.push(iso);
+    }
+
+    return out;
   };
 
   const allDates = getActualDataDates();
@@ -116,6 +191,13 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   
   // DEBUG: INVESTIGATE WHY BLUE BAR CALCULATION IS WRONG
   const blueBarSegments = getDataSegments(allDates, dataLayers.pageviews || {dates: []});
+  console.log('🎯 BLUE BAR CALCULATION DEBUG:', {
+    allDatesCount: allDates.length,
+    allDatesRange: `${allDates[0]} to ${allDates[allDates.length - 1]}`,
+    pageviewLayerDates: dataLayers.pageviews?.dates?.length || 0,
+    blueBarSegments: blueBarSegments,
+    blueBarStartsAt: blueBarSegments[0]?.start || 0
+  });
   
   // Check actual metric distribution by date
   const metricsByDate: { [date: string]: number } = {};
@@ -143,9 +225,57 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   const timelineWidth = 100; // percentage
   const getDatePosition = (date: string) => {
     if (allDates.length <= 1) return 0;
-    const index = allDates.indexOf(date);
-    return (index / (allDates.length - 1)) * timelineWidth;
+    const msInDay = 24 * 60 * 60 * 1000;
+    const base = new Date(allDates[0] + 'T00:00:00Z');
+    const target = new Date(date + 'T00:00:00Z');
+    let idx = Math.floor((target.getTime() - base.getTime()) / msInDay);
+    idx = Math.max(0, Math.min(idx, allDates.length - 1));
+    return (idx / (allDates.length - 1)) * timelineWidth;
   };
+
+  // Build tick positions/labels along the master timeline
+  function getTickPositions() {
+    if (allDates.length === 0) return [] as { pos: number; label: string }[];
+    const first = new Date(allDates[0] + 'T00:00:00Z');
+    const last = new Date(allDates[allDates.length - 1] + 'T00:00:00Z');
+
+    const monthsSpan = (last.getFullYear() - first.getFullYear()) * 12 + (last.getMonth() - first.getMonth());
+    // Choose cadence: <= 12 months -> quarterly; otherwise -> semiannual
+    const stepMonths = monthsSpan <= 12 ? 3 : 6;
+
+    // Start from first month boundary
+    const cursor = new Date(first.getFullYear(), first.getMonth(), 1);
+    const ticks: { pos: number; label: string }[] = [];
+    while (cursor <= last) {
+      const yyyy = cursor.getFullYear();
+      const mm = String(cursor.getMonth() + 1).padStart(2, '0');
+      const dd = '01';
+      const iso = `${yyyy}-${mm}-${dd}`;
+      const pos = getDatePosition(iso);
+      ticks.push({ pos, label: cursor.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) });
+      cursor.setMonth(cursor.getMonth() + stepMonths);
+    }
+    return ticks;
+  }
+
+  const tickPositions = getTickPositions();
+
+  // Year-change ticks (Jan 1 of each year) rendered as dashed vertical lines
+  function getYearTickPositions() {
+    if (allDates.length === 0) return [] as { pos: number; year: number }[];
+    const first = new Date(allDates[0] + 'T00:00:00Z');
+    const last = new Date(allDates[allDates.length - 1] + 'T00:00:00Z');
+    const result: { pos: number; year: number }[] = [];
+    for (let y = first.getFullYear(); y <= last.getFullYear(); y++) {
+      const iso = `${y}-01-01`;
+      const pos = getDatePosition(iso);
+      if (pos >= 0 && pos <= 100) {
+        result.push({ pos, year: y });
+      }
+    }
+    return result;
+  }
+  const yearTickPositions = getYearTickPositions();
 
   // Define all possible data layers
   const layerDefinitions = [
@@ -214,33 +344,40 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
   }
 
   return (
+    <>
     <div className="bg-white rounded-lg border p-6 mb-6">
       <div className="flex items-center space-x-2 mb-4">
         <Calendar className="w-5 h-5 text-blue-600" />
         <span className="font-semibold text-gray-800">Data Coverage Timeline</span>
       </div>
-      
-      {/* Timeline Header */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm text-gray-600 mb-2">
-          <span>{formatDate(startDate)}</span>
-          {allDates.length > 1 && (
-            <span>{formatDate(endDate)}</span>
-          )}
-        </div>
-        <div className="h-2 bg-gray-200 rounded-full relative">
-          {/* Timeline markers at start and end */}
-          <div className="absolute w-0.5 h-4 bg-gray-500 -top-1" style={{ left: '0%' }} />
-          <div className="absolute w-0.5 h-4 bg-gray-500 -top-1" style={{ left: '100%' }} />
-          
-          {/* Quarter markers */}
-          {[25, 50, 75].map(pos => (
-            <div
-              key={pos}
-              className="absolute w-0.5 h-3 bg-gray-400 -top-0.5"
-              style={{ left: `${pos}%` }}
-            />
-          ))}
+
+      {/* Master Timeline Row, aligned with data bars */}
+      <div className="mb-2">
+        <div className="flex items-center">
+          {/* Label column to align with layer labels */}
+          <div className="w-24 flex items-center space-x-2">
+            <div className="w-4 h-4 rounded bg-gray-400" />
+            <span className="text-sm font-semibold text-gray-800">Timeline</span>
+          </div>
+          {/* Full-range timeline bar */}
+          <div className="flex-1 ml-4 relative">
+            <div className="h-7 bg-gray-100 rounded-md relative overflow-hidden border" title="">
+              {/* base axis */}
+              <div className="absolute h-full bg-gray-200" style={{ left: '0%', width: '100%' }} />
+              {/* tick marks over the axis */}
+              {tickPositions.map((t, i) => (
+                <div key={i} className="absolute top-0 bottom-0 w-px bg-gray-400/60" style={{ left: `${t.pos}%` }} />
+              ))}
+              {/* year-change dashed lines */}
+              {yearTickPositions.map((t, i) => (
+                <div key={`yr-${i}`} className="absolute top-0 bottom-0 w-0 border-l border-dashed border-gray-500/70" style={{ left: `${t.pos}%` }} />
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-gray-600 mt-1">
+              <span>{formatDate(startDate)}</span>
+              <span>{formatDate(endDate)}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -269,28 +406,36 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
               
               {/* Timeline Bar - Full length aligned to master timeline */}
               <div className="flex-1 ml-4 relative">
-                <div className="h-7 bg-gray-100 rounded-full relative overflow-hidden border">
+                <div className="h-7 bg-gray-100 rounded-md relative overflow-hidden border">
                   {/* Render data segments for this layer */}
-                  {dataSegments.map((segment, index) => (
-                    <div
-                      key={index}
-                      className={`absolute h-full ${color} transition-all duration-300`}
-                      style={{
-                        left: `${segment.start}%`,
-                        width: `${segment.width}%`,
-                      }}
-                    />
+                  {dataSegments.map((segment: any, index: number) => {
+                    const tooltipText = `${formatDate(segment.startDate)} – ${formatDate(segment.endDate)}${hasData?.count ? ` • ${hasData.count.toLocaleString()} records` : ''}`;
+                    const denom = Math.max(allDates.length - 1, 1);
+                    const leftPercent = (segment.startIndex / denom) * 100;
+                    const rightPercent = (segment.endIndex / denom) * 100;
+                    let widthPercent = rightPercent - leftPercent;
+                    // Ensure a visible sliver for single-day segments
+                    if (widthPercent <= 0) {
+                      widthPercent = 100 / Math.max(allDates.length, 100); // ~one day width or tiny sliver
+                    }
+                    return (
+                      <div
+                        key={index}
+                        className={`absolute h-5 ${color} transition-all duration-300 rounded-sm top-1/2 -translate-y-1/2`}
+                        style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+                        onMouseMove={(e) => handleMouseMove(e, label, tooltipText)}
+                        onMouseLeave={handleMouseLeave}
+                      />
+                    );
+                  })}
+                  {/* show tick marks faintly behind for context */}
+                  {tickPositions.map((t, i) => (
+                    <div key={`tick-${i}`} className="absolute top-0 bottom-0 w-px bg-gray-300/40" style={{ left: `${t.pos}%` }} />
+                  ))}
+                  {yearTickPositions.map((t, i) => (
+                    <div key={`yr-row-${i}`} className="absolute top-0 bottom-0 w-0 border-l border-dashed border-gray-500/60" style={{ left: `${t.pos}%` }} />
                   ))}
                 </div>
-                
-                {/* Data Info */}
-                {hasData && (
-                  <div className="absolute -right-2 top-0 h-7 flex items-center">
-                    <span className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded border shadow-sm">
-                      {hasData.count.toLocaleString()}
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
           );
@@ -305,6 +450,10 @@ function DataTimelineTracker({ dataLayers, allData }: DataTimelineTrackerProps &
         </p>
       </div>
     </div>
+    {tooltip && (
+      <ThemedTooltip x={tooltip.x} y={tooltip.y} name={tooltip.title} value={''} info={tooltip.info || ''} />
+    )}
+    </>
   );
 }
 

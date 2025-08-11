@@ -730,7 +730,6 @@ export async function GET(request: NextRequest) {
     const startDateParam = searchParams.get('startDate') || undefined;
     const endDateParam = searchParams.get('endDate') || undefined;
     const useBatched = searchParams.get('batched') === '1';
-    const onlyPreflight = searchParams.get('onlyPreflight') === '1';
     const toolId = searchParams.get('toolId');
     const dataLayers = searchParams.get('dataLayers')?.split(',') || ['pageviews'];
     const useRealData = true; // ALWAYS use real data - NO MOCK DATA EVER
@@ -834,28 +833,6 @@ export async function GET(request: NextRequest) {
               batchReason: recommended ? reasons.join('; ') : undefined,
               totalDays,
             };
-
-            // If this is an explicit preflight request, return early with metadata only
-            if (onlyPreflight) {
-              // Determine dataType for context
-              dataType = isGeo ? 'geographic' : isLanding ? 'landingpages' : 'pageviews';
-
-              return NextResponse.json({
-                success: true,
-                preflight: true,
-                data: [],
-                totalRecords: 0,
-                dataType,
-                dateRange: { start: startDate, end: endDate },
-                toolId,
-                dataSource: 'google-analytics',
-                note: 'Preflight only: no data fetched',
-                quota,
-                rowCount,
-                batchRecommended: recommended,
-                batchReason: recommended ? reasons.join('; ') : null,
-              });
-            }
           } catch (pfErr) {
             console.log('Preflight skipped due to error:', pfErr);
           }
