@@ -480,6 +480,10 @@ interface UnifiedAnalyticsData {
   landing_page?: string;
   source?: string;
   medium?: string;
+  // Optional event metadata
+  event_type?: string;
+  event_name?: string;
+  description?: string;
 }
 
 // Conversion function to transform any data type to unified format
@@ -491,6 +495,31 @@ function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnaly
   const isLandingPages = dataLayers.includes('landingpages');
   
   data.forEach(record => {
+    // If record is already in unified long format, pass it through
+    if (
+      record &&
+      typeof record.date === 'string' &&
+      typeof record.metric_type === 'string' &&
+      typeof record.dimension_type === 'string' &&
+      record.dimension_value !== undefined &&
+      record.metric_value !== undefined
+    ) {
+      unifiedData.push({
+        date: record.date,
+        metric_type: record.metric_type,
+        dimension_type: record.dimension_type,
+        dimension_value: String(record.dimension_value),
+        metric_value: Number(record.metric_value) || 0,
+        landing_page: record.landing_page,
+        source: record.source,
+        medium: record.medium,
+        event_type: record.event_type,
+        event_name: record.event_name,
+        description: record.description,
+      });
+      return;
+    }
+
     if (isGeographic && record.country !== undefined) {
       // Geographic data: country -> users
       unifiedData.push({
@@ -529,6 +558,19 @@ function convertToUnifiedFormat(data: any[], dataLayers: string[]): UnifiedAnaly
         dimension_type: 'dataset',
         dimension_value: 'all',
         metric_value: record.downloads || 0
+      });
+    } else if (dataLayers.includes('events') && (record.name !== undefined || record.event_name !== undefined)) {
+      // Fallback mapping for events if provided in raw shape
+      unifiedData.push({
+        date: record.date,
+        metric_type: 'events',
+        // Use the event type (e.g., Training, Newsletter) as the dimension type for clearer grouping
+        dimension_type: record.type || record.event_type || 'event',
+        dimension_value: record.name || record.event_name || '',
+        metric_value: 1,
+        event_type: record.type || record.event_type,
+        event_name: record.name || record.event_name,
+        description: record.description || ''
       });
     }
   });
@@ -704,7 +746,7 @@ export default function AnalyticsCollectionsPage() {
       }
 
       // Create CSV content with unified long format + normalized landing page fields
-      const headers = ['Date', 'Metric Type', 'Dimension Type', 'Dimension Value', 'Metric Value', 'Landing Page', 'Source', 'Medium'];
+      const headers = ['Date', 'Metric Type', 'Dimension Type', 'Dimension Value', 'Metric Value', 'Landing Page', 'Source', 'Medium', 'Description'];
       const csvContent = [
         headers.join(','),
         ...allData.map(row => {
@@ -719,6 +761,7 @@ export default function AnalyticsCollectionsPage() {
             src = src || sPart || '';
             med = med || mPart || '';
           }
+          const desc = (row.description || '').replace(/\n|\r/g, ' ');
           return [
             row.date,
             row.metric_type,
@@ -727,7 +770,8 @@ export default function AnalyticsCollectionsPage() {
             row.metric_value,
             `"${lp || ''}"`,
             `"${src || ''}"`,
-            `"${med || ''}"`
+            `"${med || ''}"`,
+            `"${desc}"`
           ].join(',');
         })
       ].join('\n');
@@ -897,7 +941,7 @@ export default function AnalyticsCollectionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {collections.map((collection) => (
+                  {collections.slice(0, 50).map((collection) => (
                     <TableRow key={collection.id}>
                       <TableCell className="font-medium">{collection.toolName}</TableCell>
                       <TableCell>{new Date(collection.createdAt).toLocaleDateString()}</TableCell>
@@ -946,10 +990,11 @@ export default function AnalyticsCollectionsPage() {
                   <TableHead className="whitespace-nowrap">Landing Page</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Medium</TableHead>
+                  <TableHead>Description</TableHead>
                 </TableRow>
               </TableHeader>
                 <TableBody>
-                  {allData.map((row, index) => {
+                  {allData.slice(0, 50).map((row, index) => {
                     const isLanding = row.dimension_type === 'landing_page_traffic';
                     let lp = row.landing_page;
                     let src = row.source;
@@ -976,6 +1021,7 @@ export default function AnalyticsCollectionsPage() {
                       <TableCell className="max-w-xs truncate" title={lp || ''}>{lp || '-'}</TableCell>
                       <TableCell>{src || '-'}</TableCell>
                       <TableCell>{med || '-'}</TableCell>
+                      <TableCell className="max-w-xl truncate" title={row.description || ''}>{row.description || '-'}</TableCell>
                     </TableRow>
                    )})}
                 </TableBody>

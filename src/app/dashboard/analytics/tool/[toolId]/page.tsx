@@ -169,6 +169,7 @@ export default function DataToolPage() {
   });
   const [isCollecting, setIsCollecting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [asanaConnected, setAsanaConnected] = useState<boolean>(false);
   const [preflight, setPreflight] = useState<{
     rowCount: number | null;
     quota: any | null;
@@ -208,6 +209,20 @@ export default function DataToolPage() {
 
     loadDataTool();
   }, [toolId]);
+
+  // Check Asana connection on mount and when returning from OAuth
+  useEffect(() => {
+    async function checkAsana() {
+      try {
+        const resp = await fetch('/api/asana/status', { cache: 'no-store' })
+        const json = await resp.json()
+        setAsanaConnected(!!json.connected)
+      } catch {
+        setAsanaConnected(false)
+      }
+    }
+    checkAsana()
+  }, [])
 
   // Delete data tool function
   const handleDelete = () => {
@@ -1015,10 +1030,106 @@ export default function DataToolPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[400px] flex items-center justify-center bg-muted/20 rounded-lg">
-                <div className="text-center">
-                  <CalendarDays className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">Events tracking integration coming soon</p>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={asanaConnected ? 'outline' : 'secondary'}
+                    onClick={() => {
+                      const url = new URL('/api/asana/oauth/start', window.location.origin)
+                      // Stay on the same tab: return to current page after OAuth
+                      url.searchParams.set('returnUrl', window.location.pathname)
+                      window.location.href = url.toString()
+                    }}
+                  >
+                    {asanaConnected ? 'Asana Connected' : 'Connect Asana'}
+                  </Button>
+                  {asanaConnected && (
+                    <Badge variant="secondary" className="text-green-700 border-green-300 bg-green-50">Connected</Badge>
+                  )}
+                  <a
+                    href="https://app.asana.com/-/oauth_authorize"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-muted-foreground underline"
+                  >
+                    What is this?
+                  </a>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-sm">Start date</Label>
+                    <Input id="events-start" type="date" />
+                  </div>
+                  <div>
+                    <Label className="text-sm">End date</Label>
+                    <Input id="events-end" type="date" max={new Date().toISOString().split('T')[0]} />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Asana project ID</Label>
+                    <Input id="events-project-id" placeholder="e.g. 1210219007853950" />
+                  </div>
+                </div>
+
+                <p className="text-sm text-muted-foreground">Or use a CSV export if OAuth is not available.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <Label htmlFor="asana-url">Public CSV link (Asana export)</Label>
+                    <Input id="asana-url" placeholder="https://.../export.csv" />
+                  </div>
+                  <div>
+                    <Label htmlFor="asana-file">Or upload CSV</Label>
+                    <Input id="asana-file" type="file" accept=".csv" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={async () => {
+                      const projectId = (document.getElementById('events-project-id') as HTMLInputElement)?.value?.trim()
+                      const start = (document.getElementById('events-start') as HTMLInputElement)?.value || undefined
+                      const end = (document.getElementById('events-end') as HTMLInputElement)?.value || undefined
+                      if (projectId) {
+                        if (!asanaConnected) {
+                          alert('Please connect Asana first')
+                          return
+                        }
+                        const resp = await fetch('/api/events/asana/collect', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ projectId, startDate: start, endDate: end, eventFieldName: 'CW_Panoptic Tracker' })
+                        })
+                        const json = await resp.json()
+                        if (!resp.ok || !json.success) {
+                          alert(json.error || 'Failed to collect from Asana API')
+                          return
+                        }
+                        sessionStorage.setItem('eventsPreview', JSON.stringify(json))
+                        router.push(`/dashboard/analytics/tool/${toolId}/events/preview`)
+                        return
+                      }
+
+                      const url = (document.getElementById('asana-url') as HTMLInputElement)?.value?.trim()
+                      const fileInput = document.getElementById('asana-file') as HTMLInputElement
+                      const payload: any = { startDate: start, endDate: end }
+                      if (url) payload.url = url
+                      else if (fileInput?.files && fileInput.files[0]) {
+                        payload.csvContent = await fileInput.files[0].text()
+                      } else {
+                        alert('Provide a project ID, link, or upload a CSV')
+                        return
+                      }
+                      const resp = await fetch('/api/events/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+                      const json = await resp.json()
+                      if (!resp.ok || !json.success) {
+                        alert(json.error || 'Failed to collect events')
+                        return
+                      }
+                      sessionStorage.setItem('eventsPreview', JSON.stringify(json))
+                      router.push(`/dashboard/analytics/tool/${toolId}/events/preview`)
+                    }}
+                  >
+                    Collect Events
+                  </Button>
                 </div>
               </div>
             </CardContent>
