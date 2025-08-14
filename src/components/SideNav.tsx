@@ -216,6 +216,20 @@ export default function SideNav() {
                             <span>→ Master Spreadsheet</span>
                           </NavigationMenuLink>
                         </Link>
+
+                         {/* AI Wizard Sub-item */}
+                         <Link href={`/dashboard/analytics/tool/${tool.id}/ai`} legacyBehavior passHref>
+                           <NavigationMenuLink
+                             className={cn(
+                               "flex items-center space-x-2 px-6 py-1 rounded text-xs transition-colors block ml-3",
+                               pathname === `/dashboard/analytics/tool/${tool.id}/ai`
+                                 ? "bg-indigo-100 text-indigo-700 font-medium"
+                                 : "text-muted-foreground/70 hover:bg-accent hover:text-accent-foreground"
+                             )}
+                           >
+                             <span>→ AI Wizard</span>
+                           </NavigationMenuLink>
+                         </Link>
                       </div>
                     ))}
                   </div>
