@@ -78,6 +78,11 @@ export default function SideNav() {
       name: 'Sunburst Chart',
       path: '/dashboard/sunburst',
       icon: <PieChart className="w-4 h-4" />
+    },
+    {
+      name: 'SCL Data Automation',
+      path: '/dashboard/scl-data-automation',
+      icon: <BarChart3 className="w-4 h-4" />
     }
   ];
 
