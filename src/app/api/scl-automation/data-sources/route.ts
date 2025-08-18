@@ -5,7 +5,7 @@ import { authOptions } from '../../../authOptions';
 
 // Google Sheets configuration
 const SPREADSHEET_ID = '1jJOgcdwMm271zFDhZlhEgHof1nqOqlcCrLXrPKikO8o';
-const DATA_SOURCES_RANGE = 'Data Sources!A:G'; // Adjust range as needed
+const DATA_SOURCES_RANGE = 'Data Sources!A:H'; // Extended to ensure we get the last updated date column
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,6 +59,8 @@ export async function GET(request: NextRequest) {
           .replace(/[^\w]/g, '');
         
         item[cleanHeader] = value;
+        // Also store with original header name for flexible access
+        item[header] = value;
       });
 
       // Ensure we have the key fields with proper names
@@ -67,7 +69,8 @@ export async function GET(request: NextRequest) {
         name: item.name || '',
         url: item.url || '',
         description: item.description || '',
-        last_updated: item.last_updated || item.lastupdated || '',
+        // Try multiple possible column names for last updated
+        last_updated: item.last_updated || item.lastupdated || item['last updated'] || item['Last Updated'] || item['last_updated_date'] || '',
         rowNumber: item.rowNumber
       };
     });
@@ -77,7 +80,15 @@ export async function GET(request: NextRequest) {
       data: structuredData,
       totalRecords: structuredData.length,
       lastUpdated: new Date().toISOString(),
-      sourceRange: DATA_SOURCES_RANGE
+      sourceRange: DATA_SOURCES_RANGE,
+      // Debug info
+      debug: {
+        headers: headers,
+        sampleRow: structuredData.length > 0 ? {
+          allKeys: Object.keys(structuredData[0]),
+          lastUpdatedValue: structuredData[0].last_updated
+        } : null
+      }
     });
 
   } catch (error: any) {

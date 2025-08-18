@@ -22,30 +22,11 @@ import {
 } from "lucide-react";
 
 interface OutcomeIndicator {
-  id: string;
-  shift: string;
-  title: string;
-  igntu: string;
-  country_magnitude: string;
-  target_direction: string;
-  acceleration_fac: string;
-  status: string;
-  chart_mi: string;
-  chart_max: string;
-  start_year: string;
-  end_year: string;
-  source: string;
-  last_accessed_date: string;
-  source_url?: string;
-  last_updated_date?: string;
+  [key: string]: any; // Dynamic interface to handle all columns from Google Sheet
 }
 
 interface DataSource {
-  provider: string;
-  name: string;
-  url: string;
-  description: string;
-  last_updated: string;
+  [key: string]: any; // Dynamic interface to handle all columns from Google Sheet
 }
 
 interface ProcessedIndicator extends OutcomeIndicator {
@@ -76,6 +57,15 @@ export default function SCLDataAutomationPage() {
     pendingUpdates: 0,
     lastDataUpdate: ''
   });
+
+  // SharePoint data states
+  const [sharepointData, setSharepointData] = useState<{[key: string]: {
+    idFilePublicationDate?: string;
+    idFileLastAccessed?: string;
+    error?: string;
+    loading?: boolean;
+  }}>({});
+  const [loadingSharepointIds, setLoadingSharepointIds] = useState<Set<string>>(new Set());
 
   // Load data from APIs
   const loadData = async () => {
@@ -128,35 +118,73 @@ export default function SCLDataAutomationPage() {
   const processSummaryData = (indicators: OutcomeIndicator[], sources: DataSource[]): ProcessedIndicator[] => {
     const processed: ProcessedIndicator[] = [];
     
+    console.log('Processing indicators:', indicators.length);
+    console.log('Available data sources:', sources.length);
+    console.log('Sample data source keys:', sources.length > 0 ? Object.keys(sources[0]) : []);
+    console.log('Sample indicator keys:', indicators.length > 0 ? Object.keys(indicators[0]) : []);
+    console.log('Sample indicator data:', indicators.length > 0 ? indicators[0] : {});
+    
     indicators.forEach(indicator => {
-      if (indicator.source && indicator.source.includes(',')) {
-        // Split multiple sources and create duplicate rows
-        const individualSources = indicator.source.split(',').map(s => s.trim());
+      const sourceField = indicator.source || indicator.q || '';
+      if (sourceField && sourceField.includes(';')) {
+        // Split multiple sources by semicolon and create duplicate rows
+        const individualSources = sourceField.split(';').map(s => s.trim());
         
         individualSources.forEach(source => {
-          // Find matching data source
-          const matchingSource = sources.find(ds => ds.name === source);
+          // Find matching data source - try flexible matching
+          const matchingSource = sources.find(ds => {
+            const dsName = ds.name || ds.b || '';
+            const dsNameClean = dsName.toLowerCase().trim();
+            const sourceClean = source.toLowerCase().trim();
+            
+            // Try exact match first, then partial match
+            return dsNameClean === sourceClean || 
+                   dsNameClean.includes(sourceClean) || 
+                   sourceClean.includes(dsNameClean);
+          });
+          
+          if (matchingSource) {
+            console.log(`Matched source "${source}" with: "${matchingSource.name}" - Last Updated: ${matchingSource.last_updated}`);
+          } else {
+            console.log(`No match found for source: "${source}"`);
+          }
           
           processed.push({
             ...indicator,
             individual_source: source,
-            source_url: matchingSource?.url || '',
-            last_updated_date: matchingSource?.last_updated || ''
+            source_url: matchingSource?.url || matchingSource?.c || '',
+            last_updated_date: matchingSource?.last_updated || matchingSource?.last_updated_date || matchingSource?.['last updated'] || matchingSource?.['Last Updated'] || ''
           });
         });
       } else {
         // Single source
-        const matchingSource = sources.find(ds => ds.name === indicator.source);
+        const matchingSource = sources.find(ds => {
+          const dsName = ds.name || ds.b || '';
+          const dsNameClean = dsName.toLowerCase().trim();
+          const sourceClean = sourceField.toLowerCase().trim();
+          
+          // Try exact match first, then partial match
+          return dsNameClean === sourceClean || 
+                 dsNameClean.includes(sourceClean) || 
+                 sourceClean.includes(dsNameClean);
+        });
+        
+        if (matchingSource) {
+          console.log(`Matched single source "${sourceField}" with: "${matchingSource.name}" - Last Updated: ${matchingSource.last_updated}`);
+        } else {
+          console.log(`No match found for single source: "${sourceField}"`);
+        }
         
         processed.push({
           ...indicator,
-          individual_source: indicator.source,
-          source_url: matchingSource?.url || '',
-          last_updated_date: matchingSource?.last_updated || ''
+          individual_source: sourceField,
+          source_url: matchingSource?.url || matchingSource?.c || '',
+          last_updated_date: matchingSource?.last_updated || matchingSource?.last_updated_date || matchingSource?.['last updated'] || matchingSource?.['Last Updated'] || ''
         });
       }
     });
     
+    console.log('Processed data sample:', processed.slice(0, 3));
     return processed;
   };
 
@@ -187,6 +215,77 @@ export default function SCLDataAutomationPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Function to fetch SharePoint data for a specific indicator
+  const fetchSharepointData = async (row: ProcessedIndicator) => {
+    const rowKey = `${row.id || row.a}-${row.individual_source}`;
+    const dataFile = row.data_file || row.t || '';
+    const sourceName = row.individual_source || '';
+
+    if (!dataFile || !sourceName) {
+      setSharepointData(prev => ({
+        ...prev,
+        [rowKey]: { error: 'Missing data file or source name' }
+      }));
+      return;
+    }
+
+    // Set loading state
+    setLoadingSharepointIds(prev => new Set([...prev, rowKey]));
+    setSharepointData(prev => ({
+      ...prev,
+      [rowKey]: { loading: true }
+    }));
+
+    try {
+      const response = await fetch('/api/scl-automation/fetch-indicator-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          indicatorKey: dataFile,
+          sourceName: sourceName
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        setSharepointData(prev => ({
+          ...prev,
+          [rowKey]: {
+            idFilePublicationDate: result.data.lastUpdatedDate || '',
+            idFileLastAccessed: result.data.lastAccessedDate || '',
+            loading: false
+          }
+        }));
+      } else {
+        setSharepointData(prev => ({
+          ...prev,
+          [rowKey]: {
+            error: result.error || 'Failed to fetch data',
+            loading: false
+          }
+        }));
+      }
+    } catch (error: any) {
+      console.error('Error fetching SharePoint data:', error);
+      setSharepointData(prev => ({
+        ...prev,
+        [rowKey]: {
+          error: `Error: ${error.message}`,
+          loading: false
+        }
+      }));
+    } finally {
+      setLoadingSharepointIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(rowKey);
+        return newSet;
+      });
+    }
   };
 
   useEffect(() => {
@@ -358,50 +457,122 @@ export default function SCLDataAutomationPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Actions</TableHead>
                         <TableHead>ID</TableHead>
                         <TableHead>Title</TableHead>
                         <TableHead>Individual Source</TableHead>
                         <TableHead>Source URL</TableHead>
                         <TableHead>Last Updated</TableHead>
+                        <TableHead>Last Accessed Date</TableHead>
+                        <TableHead>Data File</TableHead>
+                        <TableHead className="bg-blue-50">ID file: Publication Date of Report</TableHead>
+                        <TableHead className="bg-blue-50">ID file: Last Accessed</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {summaryData.slice(0, 50).map((row, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">{row.id}</TableCell>
-                          <TableCell className="max-w-xs truncate" title={row.title}>{row.title}</TableCell>
-                          <TableCell>{row.individual_source}</TableCell>
-                          <TableCell>
-                            {row.source_url ? (
-                              <a 
-                                href={row.source_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center space-x-1 text-blue-600 hover:text-blue-800"
+                      {summaryData.slice(0, 50).map((row, index) => {
+                        const rowKey = `${row.id || row.a}-${row.individual_source}`;
+                        const sharepointRow = sharepointData[rowKey];
+                        const isLoading = loadingSharepointIds.has(rowKey);
+                        
+                        return (
+                          <TableRow key={index}>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => fetchSharepointData(row)}
+                                disabled={isLoading || !row.data_file || !row.individual_source}
+                                className="text-xs"
                               >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>Link</span>
-                              </a>
-                            ) : (
-                              <span className="text-muted-foreground">No URL</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {row.last_updated_date || (
-                              <Badge variant="destructive">Missing</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Badge 
-                              variant={row.status === 'Well Off Track' ? 'destructive' : 
-                                      row.status === 'Off Track' ? 'secondary' : 'default'}
-                            >
-                              {row.status}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                {isLoading ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b border-current mr-2"></div>
+                                    Loading...
+                                  </>
+                                ) : (
+                                  'Check ID files'
+                                )}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-medium">{row.id || row.a || ''}</TableCell>
+                            <TableCell className="max-w-xs truncate" title={row.title || row.c}>{row.title || row.c || ''}</TableCell>
+                            <TableCell>{row.individual_source}</TableCell>
+                            <TableCell>
+                              {row.source_url ? (
+                                <a 
+                                  href={row.source_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex items-center space-x-1 text-blue-600 hover:text-blue-800"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>Link</span>
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground">No URL</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {row.last_updated_date || (
+                                <Badge variant="destructive">Missing</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {row.last_accessed_date || row.s || row['last accessed date'] || (
+                                <span className="text-muted-foreground">No date</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {row.data_file || row.t || (
+                                <span className="text-muted-foreground">No file</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="bg-blue-50">
+                              {sharepointRow?.idFilePublicationDate ? (
+                                <span className="text-green-700 font-medium">{sharepointRow.idFilePublicationDate}</span>
+                              ) : sharepointRow?.error ? (
+                                <Badge variant="destructive" className="text-xs">
+                                  {sharepointRow.error.length > 20 ? `${sharepointRow.error.substring(0, 20)}...` : sharepointRow.error}
+                                </Badge>
+                              ) : sharepointRow?.loading ? (
+                                <div className="flex items-center space-x-1">
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b border-current"></div>
+                                  <span className="text-xs">Loading...</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">Click "Check ID files"</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="bg-blue-50">
+                              {sharepointRow?.idFileLastAccessed ? (
+                                <span className="text-green-700 font-medium">{sharepointRow.idFileLastAccessed}</span>
+                              ) : sharepointRow?.error ? (
+                                <Badge variant="destructive" className="text-xs">
+                                  {sharepointRow.error.length > 20 ? `${sharepointRow.error.substring(0, 20)}...` : sharepointRow.error}
+                                </Badge>
+                              ) : sharepointRow?.loading ? (
+                                <div className="flex items-center space-x-1">
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b border-current"></div>
+                                  <span className="text-xs">Loading...</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">Click "Check ID files"</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge 
+                                variant={(row.status || row.l) === 'Well Off Track' ? 'destructive' : 
+                                        (row.status || row.l) === 'Off Track' ? 'secondary' : 
+                                        (row.status || row.l) === 'Insufficient Data' ? 'outline' : 'default'}
+                              >
+                                {row.status || row.l || ''}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -434,34 +605,47 @@ export default function SCLDataAutomationPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Shift</TableHead>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Country</TableHead>
-                        <TableHead>Target Direction</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Last Accessed</TableHead>
+                        {outcomeIndicators.length > 0 && Object.keys(outcomeIndicators[0])
+                          .filter(key => key !== 'rowNumber')
+                          .map((header) => (
+                          <TableHead key={header} className="min-w-32">
+                            {header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </TableHead>
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {outcomeIndicators.slice(0, 50).map((row, index) => (
                         <TableRow key={index}>
-                          <TableCell className="font-medium">{row.id}</TableCell>
-                          <TableCell>{row.shift}</TableCell>
-                          <TableCell className="max-w-xs truncate" title={row.title}>{row.title}</TableCell>
-                          <TableCell>{row.country_magnitude}</TableCell>
-                          <TableCell>{row.target_direction}</TableCell>
-                          <TableCell>
-                            <Badge 
-                              variant={row.status === 'Well Off Track' ? 'destructive' : 
-                                      row.status === 'Off Track' ? 'secondary' : 'default'}
-                            >
-                              {row.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate" title={row.source}>{row.source}</TableCell>
-                          <TableCell>{row.last_accessed_date}</TableCell>
+                          {Object.keys(outcomeIndicators[0])
+                            .filter(key => key !== 'rowNumber')
+                            .map((key) => (
+                            <TableCell key={key} className="max-w-xs">
+                              {key === 'status' ? (
+                                <Badge 
+                                  variant={row[key] === 'Well Off Track' ? 'destructive' : 
+                                          row[key] === 'Off Track' ? 'secondary' : 
+                                          row[key] === 'Insufficient Data' ? 'outline' : 'default'}
+                                >
+                                  {row[key]}
+                                </Badge>
+                              ) : key.includes('url') && row[key] ? (
+                                <a 
+                                  href={row[key]} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex items-center space-x-1 text-blue-600 hover:text-blue-800"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span className="truncate">Link</span>
+                                </a>
+                              ) : (
+                                <div className="truncate" title={row[key]}>
+                                  {row[key] || ''}
+                                </div>
+                              )}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -496,35 +680,39 @@ export default function SCLDataAutomationPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Provider</TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>URL</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Last Updated</TableHead>
+                        {dataSources.length > 0 && Object.keys(dataSources[0])
+                          .filter(key => key !== 'rowNumber')
+                          .map((header) => (
+                          <TableHead key={header} className="min-w-32">
+                            {header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </TableHead>
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {dataSources.slice(0, 50).map((row, index) => (
                         <TableRow key={index}>
-                          <TableCell className="font-medium">{row.provider}</TableCell>
-                          <TableCell>{row.name}</TableCell>
-                          <TableCell>
-                            {row.url ? (
-                              <a 
-                                href={row.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center space-x-1 text-blue-600 hover:text-blue-800"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>Visit</span>
-                              </a>
-                            ) : (
-                              <span className="text-muted-foreground">No URL</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="max-w-xs truncate" title={row.description}>{row.description}</TableCell>
-                          <TableCell>{row.last_updated}</TableCell>
+                          {Object.keys(dataSources[0])
+                            .filter(key => key !== 'rowNumber')
+                            .map((key) => (
+                            <TableCell key={key} className="max-w-xs">
+                              {key.includes('url') && row[key] ? (
+                                <a 
+                                  href={row[key]} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="flex items-center space-x-1 text-blue-600 hover:text-blue-800"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span className="truncate">Visit</span>
+                                </a>
+                              ) : (
+                                <div className="truncate" title={row[key]}>
+                                  {row[key] || ''}
+                                </div>
+                              )}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       ))}
                     </TableBody>

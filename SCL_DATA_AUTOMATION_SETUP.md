@@ -49,7 +49,23 @@ SHAREPOINT_TENANT_ID=your-azure-tenant-id
 SHAREPOINT_SITE_ID=your-sharepoint-site-id
 ```
 
-### 2. SharePoint API Setup (Future Enhancement)
+### 2. SharePoint API Setup
+
+The SharePoint integration is now fully implemented! See [SHAREPOINT_SETUP.md](./SHAREPOINT_SETUP.md) for detailed setup instructions.
+
+**Quick Overview:**
+- Creates Azure App Registration with SharePoint permissions
+- Connects to your organization's SharePoint site  
+- Fetches data from individual Excel files in the Data collection folders
+- Extracts "last updated date" and "last accessed date" from Notes sheets
+- Displays this data in new blue columns in the Summary Tab
+
+**Key Features:**
+- ✅ "Check ID files" button for each indicator
+- ✅ Automatic file location in Transport, Energy, Buildings, etc. subfolders
+- ✅ Excel Notes sheet data extraction
+- ✅ Error handling and user feedback
+- ✅ Integration with existing authentication
 
 #### Step 1: Register Azure AD Application
 1. Go to [Azure Portal](https://portal.azure.com/)
