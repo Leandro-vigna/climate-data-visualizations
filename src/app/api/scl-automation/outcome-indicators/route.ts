@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         // Clean up header names to match our interface
         const cleanHeader = header.toLowerCase()
           .replace(/\s+/g, '_')
-          .replace(/[^\w]/g, '');
+          .replace(/[^\w_]/g, '');
         
         item[cleanHeader] = value;
       });

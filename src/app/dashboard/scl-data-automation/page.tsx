@@ -118,11 +118,40 @@ export default function SCLDataAutomationPage() {
   const processSummaryData = (indicators: OutcomeIndicator[], sources: DataSource[]): ProcessedIndicator[] => {
     const processed: ProcessedIndicator[] = [];
     
+    console.log('=== DATA PROCESSING DEBUG ===');
     console.log('Processing indicators:', indicators.length);
     console.log('Available data sources:', sources.length);
     console.log('Sample data source keys:', sources.length > 0 ? Object.keys(sources[0]) : []);
     console.log('Sample indicator keys:', indicators.length > 0 ? Object.keys(indicators[0]) : []);
     console.log('Sample indicator data:', indicators.length > 0 ? indicators[0] : {});
+    
+    // Debug specific problematic indicator
+    const x_fin_12 = indicators.find(ind => (ind.id || ind.a || '').includes('X-FIN-12'));
+    if (x_fin_12) {
+      console.log('=== X-FIN-12 DEBUG ===');
+      console.log('Raw X-FIN-12 data:', x_fin_12);
+      console.log('All X-FIN-12 keys:', Object.keys(x_fin_12));
+      console.log('Source field value:', x_fin_12.source || x_fin_12.q || 'NO SOURCE');
+    }
+    
+    // Debug data sources that might match
+    const biodiversitySource = sources.find(src => 
+      (src.name || '').toLowerCase().includes('biodiversity') || 
+      (src.name || '').toLowerCase().includes('comprehensive')
+    );
+    if (biodiversitySource) {
+      console.log('=== BIODIVERSITY SOURCE DEBUG ===');
+      console.log('Found potential match:', biodiversitySource);
+      console.log('Source keys:', Object.keys(biodiversitySource));
+      console.log('Last updated variations:', {
+        last_updated: biodiversitySource.last_updated,
+        last_updated_date: biodiversitySource.last_updated_date,
+        lastupdateddate: biodiversitySource.lastupdateddate,
+        'last updated date': biodiversitySource['last updated date'],
+        'last updated': biodiversitySource['last updated'],
+        'Last Updated': biodiversitySource['Last Updated']
+      });
+    }
     
     indicators.forEach(indicator => {
       const sourceField = indicator.source || indicator.q || '';
@@ -137,23 +166,35 @@ export default function SCLDataAutomationPage() {
             const dsNameClean = dsName.toLowerCase().trim();
             const sourceClean = source.toLowerCase().trim();
             
-            // Try exact match first, then partial match
-            return dsNameClean === sourceClean || 
-                   dsNameClean.includes(sourceClean) || 
-                   sourceClean.includes(dsNameClean);
+            // First try exact match
+            if (dsNameClean === sourceClean) {
+              return true;
+            }
+            
+            // Then try partial matches but with minimum length requirement
+            if (sourceClean.length > 10 && dsNameClean.length > 10) {
+              return dsNameClean.includes(sourceClean) || sourceClean.includes(dsNameClean);
+            }
+            
+            return false;
           });
           
           if (matchingSource) {
-            console.log(`Matched source "${source}" with: "${matchingSource.name}" - Last Updated: ${matchingSource.last_updated}`);
+            console.log(`✅ Matched source "${source}" with: "${matchingSource.name}"`);
+            console.log('Matched source full data:', matchingSource);
+            console.log(`Last Updated value: ${matchingSource.last_updated || matchingSource.last_updated_date || matchingSource.lastupdateddate || 'Not found'}`);
           } else {
-            console.log(`No match found for source: "${source}"`);
+            console.log(`❌ No match found for source: "${source}"`);
+            console.log('Available source names:', sources.map(s => s.name).slice(0, 10));
+            
+
           }
           
           processed.push({
             ...indicator,
             individual_source: source,
             source_url: matchingSource?.url || matchingSource?.c || '',
-            last_updated_date: matchingSource?.last_updated || matchingSource?.last_updated_date || matchingSource?.['last updated'] || matchingSource?.['Last Updated'] || ''
+            last_updated_date: matchingSource?.last_updated || matchingSource?.last_updated_date || matchingSource?.lastupdateddate || matchingSource?.['last updated date'] || matchingSource?.['last updated'] || matchingSource?.['Last Updated'] || ''
           });
         });
       } else {
@@ -163,16 +204,27 @@ export default function SCLDataAutomationPage() {
           const dsNameClean = dsName.toLowerCase().trim();
           const sourceClean = sourceField.toLowerCase().trim();
           
-          // Try exact match first, then partial match
-          return dsNameClean === sourceClean || 
-                 dsNameClean.includes(sourceClean) || 
-                 sourceClean.includes(dsNameClean);
+          // First try exact match
+          if (dsNameClean === sourceClean) {
+            return true;
+          }
+          
+          // Then try partial matches but with minimum length requirement
+          // to avoid matching "Overview" with "A Comprehensive Overview of Global Biodiversity Finance"
+          if (sourceClean.length > 10 && dsNameClean.length > 10) {
+            return dsNameClean.includes(sourceClean) || sourceClean.includes(dsNameClean);
+          }
+          
+          return false;
         });
         
         if (matchingSource) {
-          console.log(`Matched single source "${sourceField}" with: "${matchingSource.name}" - Last Updated: ${matchingSource.last_updated}`);
+          console.log(`✅ Matched single source "${sourceField}" with: "${matchingSource.name}"`);
+          console.log('Single source full data:', matchingSource);
+          console.log(`Last Updated value: ${matchingSource.last_updated || matchingSource.last_updated_date || matchingSource.lastupdateddate || 'Not found'}`);
         } else {
-          console.log(`No match found for single source: "${sourceField}"`);
+          console.log(`❌ No match found for single source: "${sourceField}"`);
+          console.log('Available source names:', sources.map(s => s.name).slice(0, 10));
         }
         
         processed.push({
@@ -515,7 +567,7 @@ export default function SCLDataAutomationPage() {
                               )}
                             </TableCell>
                             <TableCell>
-                              {row.last_updated_date || (
+                              {row.last_updated_date || row.lastupdateddate || row['last updated date'] || row.last_updated || (
                                 <Badge variant="destructive">Missing</Badge>
                               )}
                             </TableCell>

@@ -5,7 +5,7 @@ import { authOptions } from '../../../authOptions';
 
 // Google Sheets configuration
 const SPREADSHEET_ID = '1jJOgcdwMm271zFDhZlhEgHof1nqOqlcCrLXrPKikO8o';
-const DATA_SOURCES_RANGE = 'Data Sources!A:H'; // Extended to ensure we get the last updated date column
+const DATA_SOURCES_RANGE = 'Data Sources!A:H'; // Will fetch all available data in columns A through H
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,13 +26,17 @@ export async function GET(request: NextRequest) {
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Fetch data from the spreadsheet
+    // Fetch data from the spreadsheet with explicit options to get all data
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: DATA_SOURCES_RANGE,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+      dateTimeRenderOption: 'FORMATTED_STRING'
     });
 
     const rows = response.data.values;
+
+
 
     if (!rows || rows.length === 0) {
       return NextResponse.json({ 
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
         // Clean up header names
         const cleanHeader = header.toLowerCase()
           .replace(/\s+/g, '_')
-          .replace(/[^\w]/g, '');
+          .replace(/[^\w_]/g, '');
         
         item[cleanHeader] = value;
         // Also store with original header name for flexible access
@@ -74,6 +78,8 @@ export async function GET(request: NextRequest) {
         rowNumber: item.rowNumber
       };
     });
+
+
 
     return NextResponse.json({
       success: true,
