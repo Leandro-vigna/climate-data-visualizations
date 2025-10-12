@@ -5,7 +5,6 @@ import { authOptions } from '../../../authOptions';
 
 // Google Sheets configuration
 const SPREADSHEET_ID = '1jJOgcdwMm271zFDhZlhEgHof1nqOqlcCrLXrPKikO8o';
-const OUTCOME_INDICATORS_RANGE = 'Outcome Indicators!A:Z'; // Expanded to get all columns
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,27 +25,47 @@ export async function GET(request: NextRequest) {
 
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Fetch data from the spreadsheet
+    // Try to get the correct sheet name first
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: SPREADSHEET_ID,
+    });
+    
+    console.log('Available sheets:', spreadsheet.data.sheets?.map(s => s.properties?.title));
+    
+    // Look for the enabler/barrier sheet - it might have a slightly different name
+    const enablerBarrierSheet = spreadsheet.data.sheets?.find(sheet => 
+      sheet.properties?.title?.toLowerCase().includes('enabler') || 
+      sheet.properties?.title?.toLowerCase().includes('barrier')
+    );
+    
+    if (!enablerBarrierSheet) {
+      return NextResponse.json({ 
+        error: 'Enabler and Barrier Indicators sheet not found',
+        availableSheets: spreadsheet.data.sheets?.map(s => s.properties?.title) || []
+      }, { status: 404 });
+    }
+    
+    const sheetName = enablerBarrierSheet.properties?.title || 'Enabler and Barrier Indicators';
+    const range = `${sheetName}!A:Z`;
+    
+    console.log('Using sheet name:', sheetName);
+
+    // Fetch data from Google Sheets
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: OUTCOME_INDICATORS_RANGE,
+      range,
     });
 
     const rows = response.data.values;
-
-    if (!rows || rows.length === 0) {
-      return NextResponse.json({ 
-        success: true, 
-        data: [], 
-        message: 'No data found in the spreadsheet' 
-      });
+    if (!rows || rows.length < 2) {
+      return NextResponse.json({ error: 'No data found in Enabler and Barrier Indicators tab' }, { status: 404 });
     }
 
     // First row contains headers
     const headers = rows[0];
     const dataRows = rows.slice(1);
 
-    // Convert to structured data
+    // Convert to structured data (same format as outcome indicators)
     const structuredData = dataRows.map((row, index) => {
       const item: any = { rowNumber: index + 2 }; // +2 because we skip header and arrays are 0-indexed
       
@@ -74,12 +93,16 @@ export async function GET(request: NextRequest) {
       return item;
     });
 
+    console.log(`Fetched ${structuredData.length} enabler and barrier indicators`);
+    console.log('Sample enabler/barrier indicator:', structuredData[0]);
+
     return NextResponse.json({
       success: true,
       data: structuredData,
       totalRecords: structuredData.length,
       lastUpdated: new Date().toISOString(),
-      sourceRange: OUTCOME_INDICATORS_RANGE,
+      sourceRange: range,
+      tab: sheetName,
       // Debug info
       debug: {
         headers: headers,
@@ -91,39 +114,43 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Error fetching outcome indicators:', error);
+    console.error('Error fetching enabler and barrier indicators:', error);
     
-    // Check if it's an authentication error
-    if (error.message?.includes('authentication') || error.message?.includes('credentials')) {
+    // Try to get available sheets for debugging
+    try {
+      const auth = new google.auth.GoogleAuth({
+        credentials: {
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+      });
+      
+      const sheets = google.sheets({ version: 'v4', auth });
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.SCL_SPREADSHEET_ID,
+      });
+      
+      const availableSheets = spreadsheet.data.sheets?.map(s => s.properties?.title) || [];
+      
       return NextResponse.json(
         { 
-          success: false, 
-          error: 'Google Sheets authentication failed. Please check your service account credentials.',
-          details: error.message 
-        },
-        { status: 401 }
+          error: 'Failed to fetch enabler and barrier indicators', 
+          details: error.message,
+          availableSheets: availableSheets,
+          debugInfo: 'Check console for more details'
+        }, 
+        { status: 500 }
       );
-    }
-
-    // Check if it's a permissions error
-    if (error.message?.includes('permission') || error.message?.includes('access')) {
+    } catch (debugError) {
       return NextResponse.json(
         { 
-          success: false, 
-          error: 'Permission denied. Please ensure the service account has access to the spreadsheet.',
-          details: error.message 
-        },
-        { status: 403 }
+          error: 'Failed to fetch enabler and barrier indicators', 
+          details: error.message,
+          debugError: debugError.message
+        }, 
+        { status: 500 }
       );
     }
-
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to fetch outcome indicators from Google Sheets',
-        details: error.message 
-      },
-      { status: 500 }
-    );
   }
 }

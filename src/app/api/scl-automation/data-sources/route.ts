@@ -5,7 +5,7 @@ import { authOptions } from '../../../authOptions';
 
 // Google Sheets configuration
 const SPREADSHEET_ID = '1jJOgcdwMm271zFDhZlhEgHof1nqOqlcCrLXrPKikO8o';
-const DATA_SOURCES_RANGE = 'Data Sources!A:H'; // Will fetch all available data in columns A through H
+const DATA_SOURCES_RANGE = 'Data Sources!A:Z'; // Expanded to get all columns
 
 export async function GET(request: NextRequest) {
   try {
