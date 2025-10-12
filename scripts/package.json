@@ -1,0 +1,16 @@
+{
+  "name": "metadata-extraction-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for extracting metadata from Excel files",
+  "main": "extract-metadata.js",
+  "scripts": {
+    "extract": "node extract-metadata.js",
+    "extract-list": "node extract-metadata.js --list"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "keywords": ["excel", "metadata", "extraction", "data-analysis"],
+  "author": "Systems Change Lab",
+  "license": "MIT"
+}

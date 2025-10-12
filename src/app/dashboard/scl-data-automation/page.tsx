@@ -29,6 +29,7 @@ import {
   X,
   GripVertical
 } from "lucide-react";
+import UpdateChecker from "@/app/components/update-checker";
 
 interface OutcomeIndicator {
   [key: string]: any; // Dynamic interface to handle all columns from Google Sheet
@@ -192,6 +193,7 @@ export default function SCLDataAutomationPage() {
 
   // Column width states
   const [columnWidths, setColumnWidths] = useState<{[key: string]: number}>({
+    update_check: 200,
     actions: 120,
     shared: 80,
     system: 120,
@@ -1078,6 +1080,13 @@ export default function SCLDataAutomationPage() {
                   <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
+                        <TableHead style={{ width: columnWidths.update_check }} className="relative group">
+                          Update Check
+                          <div 
+                            className="absolute top-0 right-0 w-1 h-full cursor-col-resize bg-transparent hover:bg-blue-500 opacity-0 group-hover:opacity-100 transition-all duration-200 z-20 pointer-events-auto hover:w-2"
+                            onMouseDown={(e) => handleMouseDown('update_check', e)}
+                          />
+                        </TableHead>
                         <TableHead style={{ width: columnWidths.actions }} className="relative group">
                           Actions
                           <div 
@@ -1247,6 +1256,15 @@ export default function SCLDataAutomationPage() {
                         
                         return (
                           <TableRow key={index}>
+                            <TableCell style={{ width: columnWidths.update_check }}>
+                              <UpdateChecker
+                                indicatorId={row.id || ''}
+                                dataFile={row.data_file || ''}
+                                system={row.system || ''}
+                                sourceUrl={row.source_url || ''}
+                                sourceTitle={row.individual_source || ''}
+                              />
+                            </TableCell>
                             <TableCell style={{ width: columnWidths.actions }}>
                               <Button
                                 size="sm"
