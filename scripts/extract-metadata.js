@@ -39,7 +39,9 @@ function extractNotesTab(filePath) {
     console.log(`Found Notes tab: ${notesSheetName}`);
     const worksheet = workbook.Sheets[notesSheetName];
     const notesContent = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-    
+    console.log('Notes content extracted (first 5 rows):', notesContent ? notesContent.slice(0, 5) : 'No content');
+    console.log('Full notes content length:', notesContent ? notesContent.length : 0);
+
     // Convert to readable format
     const notesText = notesContent
       .map(row => Array.isArray(row) ? row.join('\t') : String(row))

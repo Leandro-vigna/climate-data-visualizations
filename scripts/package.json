@@ -10,7 +10,12 @@
   "dependencies": {
     "xlsx": "^0.18.5"
   },
-  "keywords": ["excel", "metadata", "extraction", "data-analysis"],
+  "keywords": [
+    "excel",
+    "metadata",
+    "extraction",
+    "data-analysis"
+  ],
   "author": "Systems Change Lab",
   "license": "MIT"
 }

@@ -4,10 +4,12 @@ const nextConfig = {
     // Disable ESLint during builds to allow deployment
     ignoreDuringBuilds: true,
   },
+  // Enable fast refresh for better hot-reload experience
+  reactStrictMode: true,
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-progress'],
   },
-  webpack: (config, { isServer, dev }) => {
+  webpack: (config, { isServer }) => {
     // Fix for vendor chunks issues
     config.resolve.fallback = {
       ...config.resolve.fallback,
@@ -16,42 +18,8 @@ const nextConfig = {
       tls: false,
     };
     
-    // Optimize chunk splitting
-    config.optimization.splitChunks = {
-      chunks: 'all',
-      cacheGroups: {
-        default: false,
-        vendors: false,
-        vendor: {
-          name: 'vendor',
-          chunks: 'all',
-          test: /node_modules/,
-          priority: 20,
-        },
-        common: {
-          name: 'common',
-          minChunks: 2,
-          chunks: 'all',
-          priority: 10,
-          reuseExistingChunk: true,
-          enforce: true,
-        },
-      },
-    };
-
-    // Fix for vendor chunks in development
-    if (dev) {
-      config.optimization.splitChunks = {
-        chunks: 'all',
-        cacheGroups: {
-          vendor: {
-            test: /[\\/]node_modules[\\/]/,
-            name: 'vendors',
-            chunks: 'all',
-          },
-        },
-      };
-    }
+    // Use Next.js default chunk splitting to avoid vendor file corruption
+    // Removed custom splitChunks config that might cause issues
     
     return config;
   },
@@ -93,7 +61,29 @@ const nextConfig = {
         source: "/api/openai/:path*",
         destination: "https://api.openai.com/:path*",
       },
+      // Fix for cached browsers requesting /next/static/... instead of /_next/static/...
+      {
+        source: "/next/:path*",
+        destination: "/_next/:path*",
+      },
     ];
+  },
+  // Disable caching in development to prevent stale HTML
+  async headers() {
+    if (process.env.NODE_ENV === 'development') {
+      return [
+        {
+          source: '/:path*',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            },
+          ],
+        },
+      ];
+    }
+    return [];
   },
 };
 

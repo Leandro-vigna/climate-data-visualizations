@@ -1,0 +1,32 @@
+{
+  "fileName": "PWR-2.xlsx",
+  "system": "Energy",
+  "extractedAt": "2025-10-13T01:00:15.165Z",
+  "sourceInfo": {
+    "provider": "provider\tname\turl\tdescription\tlicensing description\tlast updated date\tlast accessed date (if no publication date)"
+  },
+  "dataInfo": {
+    "units": "Billion USD",
+    "frequency": "d date\tlast accessed date (if no publication date)"
+  },
+  "urls": {
+    "downloadUrl": "https://www.iea.org/data-and-statistics/data-product/world-energy-investment-2024-datafile"
+  },
+  "methodology": {},
+  "technical": {},
+  "processing": {},
+  "quality": {},
+  "parsingInfo": {
+    "notesTabContent": "Key\tsection\t_short\n\tIndicator\tPWR-2\n\tSector\tpwr\n\tTransformation\trnwbl\n\tUnit\tBillion USD\n\n\nData source:\tprovider\tname\turl\tdescription\tlicensing description\tlast updated date\tlast accessed date (if no publication date)\n\tIEA\tWorld Energy Investment 2024 Data File\thttps://www.iea.org/data-and-statistics/data-product/world-energy-investment-2024-datafile\t\tprivate\t45444\t45595\n\n\n\t \t \t \t \t \t \t \n\nNote:\tTotal = sum of  renewable generation + nuclear generation + storage + electricity networks (distribution + transmission)\n\tNote: 2024 data file does not include breakdown of transmission+distribution, so using the electricity networks aggregate\n\nLog\t45104\tYK file initiate\n\t45252\tYK updated data\n\t45595\tCN upated data",
+    "extractedFields": [
+      "urls",
+      "provider",
+      "units",
+      "frequency"
+    ],
+    "missingFields": [
+      "primaryUrl"
+    ],
+    "parsingErrors": []
+  }
+}

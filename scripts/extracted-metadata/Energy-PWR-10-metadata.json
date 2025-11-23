@@ -1,0 +1,29 @@
+{
+  "fileName": "PWR-10.xlsx",
+  "system": "Energy",
+  "extractedAt": "2025-10-13T20:01:21.374Z",
+  "sourceInfo": {
+    "provider": "provider\tname\turl\tdescription\tlicensing description\tlast updated date\tlast accessed date (if no publication date)"
+  },
+  "dataInfo": {
+    "units": "Data source:\tprovider\tname\turl\tdescription\tlicensing description\tlast updated date\tlast accessed date (if no publication date)",
+    "frequency": "d date\tlast accessed date (if no publication date)"
+  },
+  "urls": {},
+  "methodology": {},
+  "technical": {},
+  "processing": {},
+  "quality": {},
+  "parsingInfo": {
+    "notesTabContent": "Key\tsection\t_short\n\tIndicator\tPWR-10\n\tSector\tpwr\n\tTransformation\tgrd\n\tUnit\n\n\nData source:\tprovider\tname\turl\tdescription\tlicensing description\tlast updated date\tlast accessed date (if no publication date)\n\tO. Schmidt and I. Staffell\tMonetizing Energy Storage - A toolkit to assess future cost and value\thttps://global.oup.com/academic/product/monetizing-energy-storage-9780192888174?cc=gb&lang=en\t\tOxford University Press\t2023\n\n\n\t \t \t \t \t \t \t \n\nNote:\n\n\nLog\t45139\tYK file initiate\n",
+    "extractedFields": [
+      "provider",
+      "units",
+      "frequency"
+    ],
+    "missingFields": [
+      "primaryUrl"
+    ],
+    "parsingErrors": []
+  }
+}
