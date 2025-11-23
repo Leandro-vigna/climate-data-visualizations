@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Diagnosis complete',
-      userEmail: session.user?.email,
+      userEmail: session?.user?.email,
       environment: {
         SCL_SPREADSHEET_ID: process.env.SCL_SPREADSHEET_ID || 'NOT SET'
       },

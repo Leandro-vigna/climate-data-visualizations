@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
         { 
           error: 'Failed to fetch enabler and barrier indicators', 
           details: error.message,
-          debugError: debugError.message
+          debugError: debugError instanceof Error ? debugError.message : String(debugError)
         }, 
         { status: 500 }
       );

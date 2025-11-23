@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     let tasks: AsanaTask[] = []
     let nextPage: string | null = url.toString()
     while (nextPage) {
-      const resp = await fetch(nextPage, { headers: { Authorization: `Bearer ${accessToken}` } })
+      const resp: Response = await fetch(nextPage, { headers: { Authorization: `Bearer ${accessToken}` } })
       if (!resp.ok) {
         const text = await resp.text()
         return NextResponse.json({ success: false, error: 'Asana API error', details: text }, { status: 400 })

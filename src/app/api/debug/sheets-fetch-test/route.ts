@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
           )
         };
       } catch (error) {
-        results[test.name] = { error: error.message };
+        results[test.name] = { error: error instanceof Error ? error.message : 'Unknown error' };
       }
     }
 

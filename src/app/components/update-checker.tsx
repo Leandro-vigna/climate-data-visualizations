@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   RefreshCw, 
   CheckCircle, 
@@ -15,9 +16,12 @@ import {
   Database,
   Globe,
   FileText,
-  Info
+  Info,
+  FileCode
 } from "lucide-react";
 import { UpdateCheckResult, SourceMetadata } from "@/lib/database/update-tracking";
+import { ExcelNotesMetadata } from "@/lib/types/metadata";
+import { IndicatorWriteUpInfo } from "@/lib/writeup-parser";
 
 interface UpdateCheckerProps {
   indicatorId: string;
@@ -25,7 +29,9 @@ interface UpdateCheckerProps {
   system: string;
   sourceUrl: string;
   sourceTitle: string;
+  existingMetadata?: ExcelNotesMetadata | null; // Pass existing metadata to show persistent status
   onUpdateComplete?: (result: UpdateCheckResult) => void;
+  onMetadataExtracted?: (indicatorId: string, metadata: ExcelNotesMetadata) => void;
 }
 
 interface CheckProgress {
@@ -41,16 +47,48 @@ export default function UpdateChecker({
   system, 
   sourceUrl, 
   sourceTitle,
-  onUpdateComplete 
+  existingMetadata,
+  onUpdateComplete,
+  onMetadataExtracted
 }: UpdateCheckerProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [progress, setProgress] = useState<CheckProgress | null>(null);
   const [lastResult, setLastResult] = useState<UpdateCheckResult | null>(null);
+  const [metadata, setMetadata] = useState<ExcelNotesMetadata | null>(existingMetadata || null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'metadata' | 'results'>('metadata');
+  
+  // Update local metadata when existingMetadata prop changes
+  useEffect(() => {
+    if (existingMetadata) {
+      setMetadata(existingMetadata);
+      // Set a result to show status badge
+      setLastResult({
+        id: `existing-${indicatorId}`,
+        indicatorId,
+        dataFile,
+        system,
+        sourceUrl,
+        sourceTitle,
+        hasUpdate: false,
+        updateType: 'no_update',
+        confidence: 100,
+        lastChecked: existingMetadata.extractedAt instanceof Date 
+          ? existingMetadata.extractedAt 
+          : new Date(existingMetadata.extractedAt),
+        crawlStatus: 'pending',
+        extractedMetadata: existingMetadata
+      });
+    }
+  }, [existingMetadata, indicatorId, dataFile, system, sourceUrl, sourceTitle]);
 
   const handleCheckForUpdates = async () => {
     setIsChecking(true);
     setError(null);
+    setMetadata(null);
+    setLastResult(null);
+    setActiveTab('metadata');
+    
     setProgress({
       stage: 'extracting_metadata',
       progress: 0,
@@ -66,42 +104,179 @@ export default function UpdateChecker({
         details: `Processing ${system}/${dataFile}`
       });
 
-      // TODO: Implement actual metadata extraction
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Extract indicator key from dataFile (remove .xlsx extension if present)
+      const indicatorKey = dataFile.replace(/\.(xlsx|csv)$/, '');
 
+      // Get saved folder path from localStorage (with fallback to default)
+      let savedPath: string | null = null;
+      if (typeof window !== 'undefined') {
+        savedPath = localStorage.getItem('sharepoint_local_path');
+        // If no saved path, try to set default
+        if (!savedPath) {
+          const defaultPath = '/Users/leandrovigna/Library/CloudStorage/OneDrive-WorldResourcesInstitute/Systems Change Lab - Data collection';
+          localStorage.setItem('sharepoint_local_path', defaultPath);
+          savedPath = defaultPath;
+        }
+      }
+
+      // Use saved path or undefined (server will use default)
+      const basePathToUse = savedPath || undefined;
+
+      // Call metadata extraction API
+      console.log('Calling extract-metadata API with:', { indicatorKey, system, basePath: basePathToUse });
+      const metadataResponse = await fetch('/api/scl-automation/extract-metadata', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          indicatorKey,
+          system,
+          basePath: basePathToUse // Pass the custom path if available
+        })
+      });
+
+      console.log('Metadata API response status:', metadataResponse.status);
+
+      if (!metadataResponse.ok) {
+        const errorData = await metadataResponse.json();
+        console.error('Metadata API error:', errorData);
+        throw new Error(errorData.error || `Failed to extract metadata (${metadataResponse.status})`);
+      }
+
+      const metadataData = await metadataResponse.json();
+      console.log('Metadata API response:', metadataData);
+      
+      if (metadataData.success && metadataData.metadata) {
+        let finalMetadata = metadataData.metadata;
+        
+        // Stage 2: Extract from copy write-up document
+        setProgress({
+          stage: 'extracting_metadata',
+          progress: 60,
+          message: 'Extracting information from copy write-up...',
+          details: `Checking ${system} write-up document`
+        });
+
+        try {
+          // Get write-up configuration from localStorage
+          const writeUpConfigs = typeof window !== 'undefined' 
+            ? localStorage.getItem('system_writeup_configs')
+            : null;
+          
+          console.log('Checking for write-up configs. System:', system, 'Configs available:', !!writeUpConfigs);
+          
+          if (writeUpConfigs) {
+            const configs = JSON.parse(writeUpConfigs);
+            console.log('All saved configs:', Object.keys(configs));
+            const systemConfig = configs[system];
+            console.log('System config for', system, ':', systemConfig);
+            
+            // Check if system has a configured write-up (either type is set or status is connected)
+            // Status can be 'connected' or we check if type is set (meaning it was configured)
+            if (systemConfig && (systemConfig.status === 'connected' || systemConfig.type === 'google-doc' || systemConfig.type === 'word-doc')) {
+              console.log('✅ Found write-up config for system:', system, systemConfig);
+              
+              // Extract indicator info from write-up
+              const requestBody = {
+                system,
+                indicatorId: indicatorKey,
+                type: systemConfig.type,
+                documentId: systemConfig.type === 'google-doc' 
+                  ? systemConfig.googleDocUrl?.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1]
+                  : undefined
+              };
+              
+              console.log('Calling extract-writeup-info API with:', requestBody);
+              
+              const writeUpResponse = await fetch('/api/scl-automation/extract-writeup-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+              });
+
+              console.log('Write-up API response status:', writeUpResponse.status);
+
+              if (writeUpResponse.ok) {
+                const writeUpData = await writeUpResponse.json();
+                console.log('Write-up API response:', writeUpData);
+                
+                if (writeUpData.success && writeUpData.writeUpInfo) {
+                  // Merge write-up info with Excel metadata
+                  finalMetadata = {
+                    ...finalMetadata,
+                    writeUpInfo: {
+                      ...writeUpData.writeUpInfo,
+                      extractedAt: new Date(),
+                      source: systemConfig.type,
+                      contradictions: detectContradictions(finalMetadata, writeUpData.writeUpInfo)
+                  }
+                  };
+                  
+                  console.log('✅ Successfully merged write-up info into metadata');
+                  
+                  setProgress({
+                    stage: 'extracting_metadata',
+                    progress: 80,
+                    message: 'Write-up information extracted!',
+                    details: 'Merging with Excel metadata'
+                  });
+                } else {
+                  console.warn('⚠️ Write-up API returned success but no writeUpInfo:', writeUpData);
+                }
+              } else {
+                const errorData = await writeUpResponse.json().catch(() => ({ error: 'Unknown error' }));
+                console.warn('❌ Write-up API error:', errorData);
+              }
+            } else {
+              console.log('ℹ️ No write-up config found for system:', system, 'Config:', systemConfig);
+            }
+          } else {
+            console.log('ℹ️ No write-up configs saved in localStorage');
+          }
+        } catch (writeUpError: any) {
+          // Don't fail the whole process if write-up extraction fails
+          console.error('❌ Failed to extract write-up info:', writeUpError);
+          // Continue with Excel metadata only
+        }
+
+        setMetadata(finalMetadata);
+        const extractedCount = finalMetadata.parsingInfo?.extractedFields?.length || 0;
+        const writeUpFields = finalMetadata.writeUpInfo ? 1 : 0;
+        
+        setProgress({
+          stage: 'extracting_metadata',
+          progress: 90,
+          message: 'Metadata extraction completed!',
+          details: `Found ${extractedCount} Excel fields${writeUpFields > 0 ? ' + write-up info' : ''}`
+        });
+        
+        // Notify parent component about extracted metadata
+        if (onMetadataExtracted) {
+          onMetadataExtracted(indicatorId, finalMetadata);
+        }
+      } else {
+        const errorMsg = metadataData.error || metadataData.details || 'No metadata returned from API';
+        console.error('No metadata in response:', metadataData);
+        throw new Error(errorMsg);
+      }
+
+      // Stage 3: Crawl source website (TODO: Implement in phase 2)
       setProgress({
         stage: 'crawling_source',
-        progress: 40,
-        message: 'Crawling source website...',
-        details: `Analyzing ${sourceUrl}`
+        progress: 95,
+        message: 'Web crawling not yet implemented...',
+        details: 'This feature will be added in phase 2'
       });
 
-      // Stage 2: Crawl source website
-      // TODO: Implement web crawling
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
+      // For now, skip web crawling and mark as completed
       setProgress({
-        stage: 'analyzing_content',
-        progress: 70,
-        message: 'Analyzing content for updates...',
-        details: 'Comparing with previous data'
+        stage: 'completed',
+        progress: 100,
+        message: 'Metadata extraction completed!'
       });
 
-      // Stage 3: Analyze content
-      // TODO: Implement content analysis
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      setProgress({
-        stage: 'comparing_data',
-        progress: 90,
-        message: 'Comparing data changes...',
-        details: 'Generating update report'
-      });
-
-      // Stage 4: Compare and generate result
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Mock result for now
+      // Set a basic result indicating metadata was extracted
       const result: UpdateCheckResult = {
         id: `check-${Date.now()}`,
         indicatorId,
@@ -109,38 +284,47 @@ export default function UpdateChecker({
         system,
         sourceUrl,
         sourceTitle,
-        hasUpdate: true,
-        updateType: 'new_data',
-        confidence: 85,
+        hasUpdate: false,
+        updateType: 'no_update',
+        confidence: 100,
         lastChecked: new Date(),
-        detectedUpdateDate: new Date(),
-        contentChangeDescription: 'New data points detected for 2024',
-        crawlStatus: 'completed',
-        crawlDuration: 5000,
-        notes: 'Data source shows updated information with additional 2024 data points',
-        warnings: ['Some data points may require manual verification'],
-        recommendations: ['Review new data points for consistency with existing methodology']
+        crawlStatus: 'pending',
+        extractedMetadata: metadataData.metadata
       };
 
       setLastResult(result);
-      setProgress({
-        stage: 'completed',
-        progress: 100,
-        message: 'Update check completed successfully!'
-      });
+      setActiveTab('metadata');
 
       if (onUpdateComplete) {
         onUpdateComplete(result);
       }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+      console.error('UpdateChecker error:', err);
+      setError(errorMessage);
       setProgress({
         stage: 'error',
         progress: 0,
         message: 'Update check failed',
-        details: err instanceof Error ? err.message : 'Unknown error'
+        details: errorMessage
       });
+      // Still set a result so the tabs show even on error
+      setLastResult({
+        id: `check-${Date.now()}`,
+        indicatorId,
+        dataFile,
+        system,
+        sourceUrl,
+        sourceTitle,
+        hasUpdate: false,
+        updateType: 'error',
+        confidence: 0,
+        lastChecked: new Date(),
+        crawlStatus: 'failed',
+        crawlError: errorMessage
+      });
+      setActiveTab('metadata'); // Show metadata tab to display error
     } finally {
       setIsChecking(false);
     }
@@ -204,12 +388,12 @@ export default function UpdateChecker({
   };
 
   return (
-    <div className="space-y-4">
+      <div className="space-y-2" style={{ minWidth: '200px' }}>
       {/* Check Button */}
       <div className="flex items-center space-x-2">
         <Button
           onClick={handleCheckForUpdates}
-          disabled={isChecking}
+          disabled={isChecking || !dataFile}
           size="sm"
           variant="outline"
           className="flex items-center space-x-2"
@@ -246,98 +430,99 @@ export default function UpdateChecker({
         </Card>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <Alert variant="destructive">
+      {/* Simple Status Message - Full metadata is shown in the Metadata tab */}
+      {error && !isChecking && (
+        <Alert variant="destructive" className="mt-2">
           <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="text-xs">
+            <strong>Error:</strong> {error}
+            <br />
+            <span className="text-xs mt-1 block">
+              Check the Metadata tab for details, or try again in a moment if the file is syncing.
+            </span>
+          </AlertDescription>
         </Alert>
       )}
 
-      {/* Results Display */}
-      {lastResult && !isChecking && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Globe className="w-5 h-5" />
-              <span>Update Check Results</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Summary */}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="font-medium">Last Checked:</span>
-                <p className="text-muted-foreground">
-                  {lastResult.lastChecked.toLocaleString()}
-                </p>
-              </div>
-              <div>
-                <span className="font-medium">Confidence:</span>
-                <p className="text-muted-foreground">
-                  {lastResult.confidence}%
-                </p>
-              </div>
-              <div>
-                <span className="font-medium">Duration:</span>
-                <p className="text-muted-foreground">
-                  {lastResult.crawlDuration ? `${lastResult.crawlDuration}ms` : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <span className="font-medium">Update Date:</span>
-                <p className="text-muted-foreground">
-                  {lastResult.detectedUpdateDate?.toLocaleDateString() || 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            {/* Content Changes */}
-            {lastResult.contentChangeDescription && (
-              <div>
-                <span className="font-medium text-sm">Changes Detected:</span>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {lastResult.contentChangeDescription}
-                </p>
-              </div>
-            )}
-
-            {/* Notes */}
-            {lastResult.notes && (
-              <div>
-                <span className="font-medium text-sm">Notes:</span>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {lastResult.notes}
-                </p>
-              </div>
-            )}
-
-            {/* Warnings */}
-            {lastResult.warnings && lastResult.warnings.length > 0 && (
-              <div>
-                <span className="font-medium text-sm text-yellow-600">Warnings:</span>
-                <ul className="text-sm text-muted-foreground mt-1 list-disc list-inside">
-                  {lastResult.warnings.map((warning, index) => (
-                    <li key={index}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Recommendations */}
-            {lastResult.recommendations && lastResult.recommendations.length > 0 && (
-              <div>
-                <span className="font-medium text-sm text-blue-600">Recommendations:</span>
-                <ul className="text-sm text-muted-foreground mt-1 list-disc list-inside">
-                  {lastResult.recommendations.map((rec, index) => (
-                    <li key={index}>{rec}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Success Message - Only show if just extracted (not existing) */}
+      {metadata && !isChecking && !error && !existingMetadata && (
+        <Alert className="mt-2 bg-green-50 border-green-200">
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <AlertDescription className="text-xs text-green-800">
+            Metadata extracted successfully! View details in the <strong>Metadata</strong> tab.
+          </AlertDescription>
+        </Alert>
       )}
+      
+      {/* Persistent indicator when metadata exists */}
+      {existingMetadata && !isChecking && (
+        <Badge variant="outline" className="mt-2 bg-blue-50 text-blue-700 border-blue-200 flex items-center space-x-1 w-fit">
+          <FileCode className="w-3 h-3" />
+          <span>Metadata available</span>
+        </Badge>
+      )}
+
+      {/* Note: Full metadata display is now in the main Metadata tab */}
     </div>
   );
+}
+
+/**
+ * Detect contradictions between Excel metadata and write-up info
+ */
+function detectContradictions(
+  excelMetadata: ExcelNotesMetadata,
+  writeUpInfo: IndicatorWriteUpInfo
+): Array<{field: string, excelValue?: any, writeUpValue?: any, description: string}> {
+  const contradictions: Array<{field: string, excelValue?: any, writeUpValue?: any, description: string}> = [];
+
+  // Check URLs
+  if (excelMetadata.urls?.primaryUrl && writeUpInfo.metadata?.urls?.[0]) {
+    if (excelMetadata.urls.primaryUrl !== writeUpInfo.metadata.urls[0]) {
+      contradictions.push({
+        field: 'primaryUrl',
+        excelValue: excelMetadata.urls.primaryUrl,
+        writeUpValue: writeUpInfo.metadata.urls[0],
+        description: 'Primary URL differs between Excel Notes and write-up document'
+      });
+    }
+  }
+
+  // Check Provider
+  if (excelMetadata.sourceInfo?.provider && writeUpInfo.metadata?.provider) {
+    if (excelMetadata.sourceInfo.provider.toLowerCase() !== writeUpInfo.metadata.provider.toLowerCase()) {
+      contradictions.push({
+        field: 'provider',
+        excelValue: excelMetadata.sourceInfo.provider,
+        writeUpValue: writeUpInfo.metadata.provider,
+        description: 'Provider name differs between Excel Notes and write-up document'
+      });
+    }
+  }
+
+  // Check Units
+  if (excelMetadata.dataInfo?.units && writeUpInfo.metadata?.units) {
+    if (excelMetadata.dataInfo.units.toLowerCase() !== writeUpInfo.metadata.units.toLowerCase()) {
+      contradictions.push({
+        field: 'units',
+        excelValue: excelMetadata.dataInfo.units,
+        writeUpValue: writeUpInfo.metadata.units,
+        description: 'Units differ between Excel Notes and write-up document'
+      });
+    }
+  }
+
+  // Check Frequency
+  if (excelMetadata.dataInfo?.frequency && writeUpInfo.metadata?.frequency) {
+    if (excelMetadata.dataInfo.frequency.toLowerCase() !== writeUpInfo.metadata.frequency.toLowerCase()) {
+      contradictions.push({
+        field: 'frequency',
+        excelValue: excelMetadata.dataInfo.frequency,
+        writeUpValue: writeUpInfo.metadata.frequency,
+        description: 'Update frequency differs between Excel Notes and write-up document'
+      });
+    }
+  }
+
+  return contradictions;
 }

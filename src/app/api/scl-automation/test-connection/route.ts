@@ -54,6 +54,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      spreadsheetId: spreadsheetId,
+      spreadsheetTitle: response.data.properties?.title || 'Unknown',
       message: 'Successfully connected to Google Sheets!',
       spreadsheet: {
         title: response.data.properties?.title,
@@ -71,7 +73,7 @@ export async function GET(request: NextRequest) {
     console.error('Connection test failed:', error);
 
     let errorMessage = 'Failed to connect to Google Sheets';
-    let troubleshooting = [];
+    let troubleshooting: string[] = [];
 
     if (error.message?.includes('authentication') || error.message?.includes('credentials')) {
       errorMessage = 'Authentication failed';

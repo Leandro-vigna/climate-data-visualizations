@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -27,9 +28,13 @@ import {
   ChevronsUpDown,
   Filter,
   X,
-  GripVertical
+  GripVertical,
+  FileCode,
+  BookOpen
 } from "lucide-react";
 import UpdateChecker from "@/app/components/update-checker";
+import DataSourceConfig from "@/app/components/DataSourceConfig";
+import SystemWriteUpConfig from "@/app/components/SystemWriteUpConfig";
 
 interface OutcomeIndicator {
   [key: string]: any; // Dynamic interface to handle all columns from Google Sheet
@@ -152,6 +157,7 @@ function analyzeSharedSources(processedData: ProcessedIndicator[]): ProcessedInd
 }
 
 export default function SCLDataAutomationPage() {
+
   const { data: session, status } = useSession({
     required: true,
     onUnauthenticated() {
@@ -191,10 +197,13 @@ export default function SCLDataAutomationPage() {
   const [filters, setFilters] = useState<{[key: string]: string}>({});
   const [showFilters, setShowFilters] = useState(false);
 
+  // Metadata state - store all extracted metadata for display in Metadata tab
+  const [extractedMetadata, setExtractedMetadata] = useState<Map<string, any>>(new Map());
+
   // Column width states
   const [columnWidths, setColumnWidths] = useState<{[key: string]: number}>({
     update_check: 200,
-    actions: 120,
+    actions: 150,
     shared: 80,
     system: 120,
     type: 120,
@@ -795,8 +804,16 @@ export default function SCLDataAutomationPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    // Only load data if session is authenticated
+    if (status === 'authenticated') {
+      loadData();
+    } else if (status !== 'loading') {
+      // Session check failed, redirect will happen via useSession
+      setIsLoading(false);
+    }
+    // If status is 'loading', wait for it to resolve
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   if (status === 'loading' || isLoading) {
     return (
@@ -810,10 +827,33 @@ export default function SCLDataAutomationPage() {
     );
   }
 
+  // Handle folder path change
+  const handleFolderPathChange = (path: string) => {
+    // Update the path in sharepoint.ts via API or state
+    console.log('Folder path updated:', path);
+  };
+
+  // Test Google Sheets connection
+  const testSheetsConnection = async () => {
+    try {
+      const response = await fetch('/api/scl-automation/test-connection');
+      const data = await response.json();
+      return {
+        success: data.success || false,
+        message: data.error || 'Connection successful'
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to test connection'
+      };
+    }
+  };
+
   return (
     <div className="pl-64 p-6 bg-background min-h-screen">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold flex items-center space-x-3">
@@ -837,6 +877,15 @@ export default function SCLDataAutomationPage() {
           </div>
         </div>
       </div>
+
+      {/* Data Source Configuration */}
+      <DataSourceConfig
+        onFolderPathChange={handleFolderPathChange}
+        onSheetsConnectionTest={testSheetsConnection}
+      />
+
+      {/* System Write-Up Configuration */}
+      <SystemWriteUpConfig />
 
       {/* Error Display */}
       {error && (
@@ -936,10 +985,14 @@ export default function SCLDataAutomationPage() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="summary" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="summary">Summary Tab</TabsTrigger>
               <TabsTrigger value="indicators">Outcome Indicators</TabsTrigger>
               <TabsTrigger value="sources">Data Sources</TabsTrigger>
+              <TabsTrigger value="metadata">
+                <FileCode className="w-4 h-4 mr-2" />
+                Metadata
+              </TabsTrigger>
             </TabsList>
             
             {/* Summary Tab */}
@@ -1256,22 +1309,36 @@ export default function SCLDataAutomationPage() {
                         
                         return (
                           <TableRow key={index}>
-                            <TableCell style={{ width: columnWidths.update_check }}>
-                              <UpdateChecker
-                                indicatorId={row.id || ''}
-                                dataFile={row.data_file || ''}
-                                system={row.system || ''}
-                                sourceUrl={row.source_url || ''}
-                                sourceTitle={row.individual_source || ''}
-                              />
+                            <TableCell style={{ width: columnWidths.update_check, minWidth: '250px' }}>
+                              {row.data_file ? (
+                                <UpdateChecker
+                                  indicatorId={row.id || ''}
+                                  dataFile={row.data_file || ''}
+                                  system={row.system || ''}
+                                  sourceUrl={row.source_url || ''}
+                                  sourceTitle={row.individual_source || ''}
+                                  existingMetadata={extractedMetadata.get(row.id || '') || null}
+                                  onMetadataExtracted={(indicatorId, metadata) => {
+                                    setExtractedMetadata(prev => {
+                                      const newMap = new Map(prev);
+                                      newMap.set(indicatorId, metadata);
+                                      return newMap;
+                                    });
+                                  }}
+                                />
+                              ) : (
+                                <span className="text-muted-foreground text-xs">
+                                  No data file available
+                                </span>
+                              )}
                             </TableCell>
-                            <TableCell style={{ width: columnWidths.actions }}>
+                            <TableCell style={{ width: columnWidths.actions, minWidth: '150px' }} className="p-2">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => fetchSharepointData(row)}
                                 disabled={isLoading || !row.data_file || !row.individual_source}
-                                className="text-xs"
+                                className="text-xs w-full"
                               >
                                 {isLoading ? (
                                   <>
@@ -1593,6 +1660,367 @@ export default function SCLDataAutomationPage() {
                   <p className="text-sm text-muted-foreground text-center">
                     Showing first 50 of {dataSources.length} records. Export CSV to view all data.
                   </p>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Metadata Tab - Full width display of all extracted metadata */}
+            <TabsContent value="metadata" className="space-y-4">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold flex items-center space-x-2">
+                      <FileCode className="w-5 h-5" />
+                      <span>Extracted Metadata</span>
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Metadata extracted from Excel Notes tabs. Click "Check for Updates" on any row in the Summary Tab to extract metadata.
+                    </p>
+                  </div>
+                  {extractedMetadata.size > 0 && (
+                    <Badge variant="outline">
+                      {extractedMetadata.size} {extractedMetadata.size === 1 ? 'file' : 'files'} processed
+                    </Badge>
+                  )}
+                </div>
+
+                {extractedMetadata.size === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center">
+                      <FileCode className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">
+                        No metadata extracted yet. Go to the Summary Tab and click "Check for Updates" on any row to extract metadata from Excel files.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {Array.from(extractedMetadata.entries()).map(([indicatorId, metadata]) => {
+                      // Find the row data to get the title
+                      const rowData = summaryData.find(row => row.id === indicatorId);
+                      const indicatorTitle = metadata.writeUpInfo?.indicatorName || metadata.dataInfo?.title || rowData?.title || '';
+                      
+                      return (
+                      <Card key={indicatorId}>
+                        <CardHeader>
+                          <CardTitle className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <FileText className="w-5 h-5" />
+                              <div className="flex items-center space-x-2">
+                                <span className="font-semibold">{indicatorId}</span>
+                                {indicatorTitle && (
+                                  <span className="text-sm font-normal text-muted-foreground">
+                                    {indicatorTitle}
+                                  </span>
+                                )}
+                              </div>
+                              <Badge variant="outline">{metadata.system}</Badge>
+                            </div>
+                            <span className="text-sm font-normal text-muted-foreground">
+                              {metadata.fileName}
+                            </span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* Source Information */}
+                          {metadata.sourceInfo && Object.keys(metadata.sourceInfo).length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <Database className="w-4 h-4 mr-2" />
+                                Source Information
+                              </h4>
+                              <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
+                                {metadata.sourceInfo.provider && (
+                                  <div>
+                                    <span className="font-medium">Provider:</span> {metadata.sourceInfo.provider}
+                                  </div>
+                                )}
+                                {metadata.sourceInfo.organization && (
+                                  <div>
+                                    <span className="font-medium">Organization:</span> {metadata.sourceInfo.organization}
+                                  </div>
+                                )}
+                                {metadata.sourceInfo.website && (
+                                  <div>
+                                    <span className="font-medium">Website:</span>{' '}
+                                    <a href={metadata.sourceInfo.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                      {metadata.sourceInfo.website}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* URLs */}
+                          {metadata.urls && (metadata.urls.primaryUrl || metadata.urls.downloadUrl) && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <Globe className="w-4 h-4 mr-2" />
+                                URLs
+                              </h4>
+                              <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
+                                {metadata.urls.primaryUrl && (
+                                  <div>
+                                    <span className="font-medium">Primary URL:</span>{' '}
+                                    <a href={metadata.urls.primaryUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                      {metadata.urls.primaryUrl}
+                                    </a>
+                                  </div>
+                                )}
+                                {metadata.urls.downloadUrl && (
+                                  <div>
+                                    <span className="font-medium">Download URL:</span>{' '}
+                                    <a href={metadata.urls.downloadUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                      {metadata.urls.downloadUrl}
+                                    </a>
+                                  </div>
+                                )}
+                                {metadata.urls.alternativeUrls && metadata.urls.alternativeUrls.length > 0 && (
+                                  <div>
+                                    <span className="font-medium">Alternative URLs:</span>
+                                    <ul className="list-disc list-inside ml-2 mt-1">
+                                      {metadata.urls.alternativeUrls.map((url: string, idx: number) => (
+                                        <li key={idx}>
+                                          <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                            {url}
+                                          </a>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Data Information */}
+                          {metadata.dataInfo && Object.keys(metadata.dataInfo).length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2">Data Information</h4>
+                              <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
+                                {metadata.dataInfo.units && (
+                                  <div>
+                                    <span className="font-medium">Units:</span> {metadata.dataInfo.units}
+                                  </div>
+                                )}
+                                {metadata.dataInfo.frequency && (
+                                  <div>
+                                    <span className="font-medium">Frequency:</span> {metadata.dataInfo.frequency}
+                                  </div>
+                                )}
+                                {metadata.dataInfo.description && (
+                                  <div>
+                                    <span className="font-medium">Description:</span> {metadata.dataInfo.description}
+                                  </div>
+                                )}
+                                {metadata.dataInfo.timeRange && (
+                                  <div>
+                                    <span className="font-medium">Time Range:</span>{' '}
+                                    {metadata.dataInfo.timeRange.startYear && metadata.dataInfo.timeRange.endYear
+                                      ? `${metadata.dataInfo.timeRange.startYear} - ${metadata.dataInfo.timeRange.endYear}`
+                                      : metadata.dataInfo.timeRange.startYear || metadata.dataInfo.timeRange.endYear || 'N/A'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Methodology */}
+                          {metadata.methodology && Object.keys(metadata.methodology).length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2">Methodology</h4>
+                              <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
+                                {metadata.methodology.dataCollectionMethod && (
+                                  <div>
+                                    <span className="font-medium">Collection Method:</span> {metadata.methodology.dataCollectionMethod}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Write-Up Information */}
+                          {metadata.writeUpInfo && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <BookOpen className="w-4 h-4 mr-2" />
+                                Copy Write-Up Information
+                                {metadata.writeUpInfo.source && (
+                                  <Badge variant="outline" className="ml-2 text-xs">
+                                    {metadata.writeUpInfo.source === 'google-doc' ? 'Google Doc' : 'Word Doc'}
+                                  </Badge>
+                                )}
+                              </h4>
+                              <div className="bg-blue-50 border border-blue-200 p-3 rounded-md space-y-3 text-sm">
+                                {metadata.writeUpInfo.indicatorName && (
+                                  <div>
+                                    <span className="font-medium">Indicator Name:</span> {metadata.writeUpInfo.indicatorName}
+                                  </div>
+                                )}
+                                {metadata.writeUpInfo.progressStatus && (
+                                  <div>
+                                    <span className="font-medium">Progress Status:</span>{' '}
+                                    <Badge variant="outline" className="ml-1">
+                                      {metadata.writeUpInfo.progressStatus}
+                                    </Badge>
+                                  </div>
+                                )}
+                                {metadata.writeUpInfo.narrative && (
+                                  <div>
+                                    <span className="font-medium">Narrative:</span>
+                                    <div className="mt-1 p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                      {metadata.writeUpInfo.narrative}
+                                    </div>
+                                  </div>
+                                )}
+                                {metadata.writeUpInfo.metadata && Object.keys(metadata.writeUpInfo.metadata).length > 0 && (
+                                  <div>
+                                    <span className="font-medium">Metadata Categories from Write-Up:</span>
+                                    <div className="mt-2 space-y-3">
+                                      {/* Display structured categories */}
+                                      {metadata.writeUpInfo.metadata.key_terms && 
+                                       String(metadata.writeUpInfo.metadata.key_terms).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.key_terms).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">Key Terms</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.key_terms)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {metadata.writeUpInfo.metadata.historical_data_methodology_and_challenges && 
+                                       String(metadata.writeUpInfo.metadata.historical_data_methodology_and_challenges).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.historical_data_methodology_and_challenges).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">Historical Data Methodology and Challenges</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.historical_data_methodology_and_challenges)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {metadata.writeUpInfo.metadata.target_methodology && 
+                                       String(metadata.writeUpInfo.metadata.target_methodology).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.target_methodology).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">Target Methodology</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.target_methodology)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {metadata.writeUpInfo.metadata.s_curve_trajectory && 
+                                       String(metadata.writeUpInfo.metadata.s_curve_trajectory).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.s_curve_trajectory).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">S-Curve Trajectory</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.s_curve_trajectory)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {metadata.writeUpInfo.metadata.progress_assessment_methodology && 
+                                       String(metadata.writeUpInfo.metadata.progress_assessment_methodology).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.progress_assessment_methodology).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">Progress Assessment Methodology</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.progress_assessment_methodology)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {metadata.writeUpInfo.metadata.connections && 
+                                       String(metadata.writeUpInfo.metadata.connections).trim() !== ':' &&
+                                       String(metadata.writeUpInfo.metadata.connections).trim().length > 0 && (
+                                        <div>
+                                          <h5 className="font-semibold text-xs mb-1">Connections</h5>
+                                          <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                            {String(metadata.writeUpInfo.metadata.connections)}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {/* Display any other metadata fields that don't match the standard categories */}
+                                      {Object.entries(metadata.writeUpInfo.metadata)
+                                        .filter(([key]) => !['key_terms', 'historical_data_methodology_and_challenges', 'target_methodology', 's_curve_trajectory', 'progress_assessment_methodology', 'connections'].includes(key))
+                                        .filter(([key, value]) => {
+                                          // Filter out empty values, colons, or whitespace-only content
+                                          const strValue = Array.isArray(value) ? value.join('') : String(value);
+                                          return strValue && strValue.trim() && strValue.trim() !== ':';
+                                        })
+                                        .map(([key, value]) => (
+                                          <div key={key}>
+                                            <h5 className="font-semibold text-xs mb-1 capitalize">{key.replace(/_/g, ' ')}</h5>
+                                            <div className="p-2 bg-white rounded border text-xs whitespace-pre-wrap">
+                                              {Array.isArray(value) ? value.join(', ') : String(value)}
+                                            </div>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {metadata.writeUpInfo.contradictions && metadata.writeUpInfo.contradictions.length > 0 && (
+                                  <div>
+                                    <span className="font-medium text-yellow-700">⚠️ Contradictions Detected:</span>
+                                    <div className="mt-1 space-y-2">
+                                      {metadata.writeUpInfo.contradictions.map((contradiction, idx) => (
+                                        <Alert key={idx} variant="destructive" className="py-2">
+                                          <AlertTriangle className="h-4 w-4" />
+                                          <AlertDescription className="text-xs">
+                                            <div className="font-medium">{contradiction.field}</div>
+                                            <div className="mt-1">
+                                              <div>Excel: {String(contradiction.excelValue || 'N/A')}</div>
+                                              <div>Write-Up: {String(contradiction.writeUpValue || 'N/A')}</div>
+                                            </div>
+                                            <div className="mt-1 text-xs">{contradiction.description}</div>
+                                          </AlertDescription>
+                                        </Alert>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Parsing Info */}
+                          {metadata.parsingInfo && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2">Extraction Summary</h4>
+                              <div className="bg-muted p-3 rounded-md text-sm space-y-1">
+                                <div>
+                                  <span className="font-medium">Extracted Fields:</span> {metadata.parsingInfo.extractedFields?.length || 0}
+                                  {(metadata.parsingInfo.extractedFields?.length || 0) > 0 && (
+                                    <span className="text-muted-foreground ml-2">
+                                      ({metadata.parsingInfo.extractedFields.join(', ')})
+                                    </span>
+                                  )}
+                                </div>
+                                {(metadata.parsingInfo.missingFields?.length || 0) > 0 && (
+                                  <div>
+                                    <span className="font-medium text-yellow-600">Missing Fields:</span>
+                                    <span className="text-yellow-600 ml-2">
+                                      {metadata.parsingInfo.missingFields.join(', ')}
+                                    </span>
+                                  </div>
+                                )}
+                                {metadata.parsingInfo.parsingErrors && metadata.parsingInfo.parsingErrors.length > 0 && (
+                                  <div>
+                                    <span className="font-medium text-red-600">Parsing Errors:</span>
+                                    <ul className="list-disc list-inside ml-2 mt-1 text-red-600">
+                                      {metadata.parsingInfo.parsingErrors.map((error: string, idx: number) => (
+                                        <li key={idx}>{error}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </TabsContent>

@@ -86,6 +86,53 @@ export interface ExcelNotesMetadata {
   importantWarnings?: string[];
   recommendations?: string[];
   
+  // Historical changes and versioning
+  changes?: {
+    sourceSwitches?: Array<{
+      year?: number;
+      fromSource?: string;
+      toSource?: string;
+      reason?: string;
+      explanation?: string;
+      impact?: string;
+    }>;
+    methodologyChanges?: Array<{
+      year?: number;
+      changeDescription?: string;
+      reason?: string;
+      impact?: string;
+    }>;
+    dataStructureChanges?: Array<{
+      year?: number;
+      changeDescription?: string;
+      affectedFields?: string[];
+    }>;
+  };
+  
+  // Indicator-specific metadata (flexible key-value store for unique fields)
+  customFields?: {
+    [key: string]: any; // Allows each indicator to have unique metadata fields
+  };
+  
+  // Copy write-up information (from system write-up documents)
+  writeUpInfo?: {
+    indicatorName?: string;
+    progressStatus?: string;
+    narrative?: string;
+    metadata?: {
+      [key: string]: any;
+    };
+    fullSection?: string;
+    extractedAt?: Date;
+    source?: 'google-doc' | 'word-doc';
+    contradictions?: Array<{
+      field: string;
+      excelValue?: any;
+      writeUpValue?: any;
+      description: string;
+    }>;
+  };
+  
   // Parsing metadata
   parsingInfo: {
     notesTabContent?: string;

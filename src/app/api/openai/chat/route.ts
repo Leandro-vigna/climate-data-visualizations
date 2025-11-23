@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     };
     const resolvedModel = modelAliasMap[String(requestedModel || '')] || requestedModel || 'gpt-4o';
 
-    function extractError(err: any): string {
+    const extractError = (err: any): string => {
       const parts: string[] = [];
       if (err?.message) parts.push(String(err.message));
       // Vercel AI SDK and axios-like shapes
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       const status = err?.status || err?.cause?.status || err?.response?.status;
       if (status) parts.push(`status=${status}`);
       return parts.filter(Boolean).join(' | ');
-    }
+    };
 
     // Normalize env to avoid whitespace/quotes mismatches
     const openaiProject = process.env.OPENAI_PROJECT?.trim().replace(/^"|"$/g, '');
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       project: openaiProject,
     });
 
-    async function tryModel(modelName: string) {
+    const tryModel = async (modelName: string) => {
       try {
         const { text } = await generateText({
           model: oai(modelName),
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       } catch (err: any) {
         throw new Error(extractError(err));
       }
-    }
+    };
 
     let text: string | undefined;
     const firstChoice = resolvedModel || "gpt-4o";

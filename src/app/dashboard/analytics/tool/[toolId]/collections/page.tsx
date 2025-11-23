@@ -627,7 +627,7 @@ export default function AnalyticsCollectionsPage() {
         setCollections(result.collections);
         
         // Merge all data from all collections with duplicate detection
-        const mergedData: PageViewData[] = [];
+        const mergedData: UnifiedAnalyticsData[] = [];
         const seenKeys = new Set<string>();
         let totalRecords = 0;
         let duplicateCount = 0;
@@ -650,7 +650,11 @@ export default function AnalyticsCollectionsPage() {
               
               // Collect all unique dates for this layer
               const layerDates = collection.data.map(d => d.date);
-              layerStats[layer].dates = [...new Set([...layerStats[layer].dates, ...layerDates])].sort();
+              const existingDates: string[] = Array.isArray(layerStats[layer].dates) 
+                ? layerStats[layer].dates
+                : Array.from(layerStats[layer].dates as Set<string>);
+              const allDates = existingDates.concat(layerDates);
+              layerStats[layer].dates = Array.from(new Set(allDates)).sort();
               
               // Update date range string
               if (layerStats[layer].dates.length > 0) {
@@ -678,7 +682,7 @@ export default function AnalyticsCollectionsPage() {
         // Update counts in layerStats to reflect unique records only
         // Count all records that belong to each layer's date range
         Object.keys(layerStats).forEach(layer => {
-          const layerDateSet = new Set(layerStats[layer].dates);
+          const layerDateSet = new Set(Array.isArray(layerStats[layer].dates) ? layerStats[layer].dates : Array.from(layerStats[layer].dates as Set<string>));
           
           if (layer === 'geographic') {
             // Count geographic records (users by country) within this layer's date range

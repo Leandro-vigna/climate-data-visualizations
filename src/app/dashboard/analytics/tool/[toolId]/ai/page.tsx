@@ -454,7 +454,7 @@ export default function AIWizardPage() {
     }
 
     // Add any unrecognized metrics as their own group
-    for (const mt of allMetricTypes) {
+    for (const mt of Array.from(allMetricTypes)) {
       const isKnown = Object.values(metricGroups).some(group => group.includes(mt))
       if (!isKnown) {
         metricGroups[mt] = [mt]

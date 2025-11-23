@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
-
 export async function POST(req: Request) {
   const body = await req.json();
 
@@ -16,6 +14,11 @@ export async function POST(req: Request) {
   const filePath = "tmp/input.wav";
 
   try {
+    // Initialize OpenAI client only when route is called
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     // Write the audio data to a temporary WAV file synchronously
     fs.writeFileSync(filePath, audio);
 

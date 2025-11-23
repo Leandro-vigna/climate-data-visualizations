@@ -13,10 +13,10 @@ export function getThemeStyles(theme: Theme) {
   return {
     fontFamily: theme.typography.fontFamily.primary,
     fontSize: {
-      small: theme.typography.fontSize.small,
-      medium: theme.typography.fontSize.medium,
-      large: theme.typography.fontSize.large,
-      xlarge: theme.typography.fontSize.xlarge,
+      small: theme.typography.fontSize.sm,
+      medium: theme.typography.fontSize.base,
+      large: theme.typography.fontSize.lg,
+      xlarge: theme.typography.fontSize.xl,
     },
     fontWeight: theme.typography.fontWeight,
     colors: theme.colors,
