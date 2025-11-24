@@ -247,29 +247,11 @@ function extractIndicatorFromText(
       }
     }
 
-    // Also extract URLs and other common fields
+    // Also extract URLs (but not provider, units, frequency - those should come from Excel metadata, not write-ups)
     const urlPattern = /(?:url|website|link|source)[:\s]*(https?:\/\/[^\s\n]+)/gi;
     const urls = Array.from(metadataSection.matchAll(urlPattern)).map(m => m[1]);
     if (urls.length > 0) {
       metadata.urls = urls;
-    }
-
-    const providerPattern = /(?:provider|organization|source|institution)[:\s]*([^\n]+)/i;
-    const providerMatch = metadataSection.match(providerPattern);
-    if (providerMatch) {
-      metadata.provider = providerMatch[1].trim();
-    }
-
-    const unitsPattern = /(?:unit|units|measurement)[:\s]*([^\n]+)/i;
-    const unitsMatch = metadataSection.match(unitsPattern);
-    if (unitsMatch) {
-      metadata.units = unitsMatch[1].trim();
-    }
-
-    const frequencyPattern = /(?:frequency|update|release)[:\s]*([^\n]+)/i;
-    const frequencyMatch = metadataSection.match(frequencyPattern);
-    if (frequencyMatch) {
-      metadata.frequency = frequencyMatch[1].trim();
     }
   }
 

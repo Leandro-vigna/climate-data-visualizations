@@ -251,6 +251,22 @@ export default function UpdateChecker({
           details: `Found ${extractedCount} Excel fields${writeUpFields > 0 ? ' + write-up info' : ''}`
         });
         
+        // Set result with a flag to indicate this was just extracted
+        setLastResult({
+          id: `new-${indicatorId}-${Date.now()}`,
+          indicatorId,
+          dataFile,
+          system,
+          sourceUrl,
+          sourceTitle,
+          hasUpdate: false,
+          updateType: 'no_update',
+          confidence: 100,
+          lastChecked: new Date(),
+          crawlStatus: 'pending',
+          extractedMetadata: finalMetadata
+        });
+
         // Notify parent component about extracted metadata
         if (onMetadataExtracted) {
           onMetadataExtracted(indicatorId, finalMetadata);
@@ -276,23 +292,7 @@ export default function UpdateChecker({
         message: 'Metadata extraction completed!'
       });
 
-      // Set a basic result indicating metadata was extracted
-      const result: UpdateCheckResult = {
-        id: `check-${Date.now()}`,
-        indicatorId,
-        dataFile,
-        system,
-        sourceUrl,
-        sourceTitle,
-        hasUpdate: false,
-        updateType: 'no_update',
-        confidence: 100,
-        lastChecked: new Date(),
-        crawlStatus: 'pending',
-        extractedMetadata: metadataData.metadata
-      };
-
-      setLastResult(result);
+      // Note: lastResult was already set above when metadata was extracted (with 'new-' prefix)
       setActiveTab('metadata');
 
       if (onUpdateComplete) {
@@ -444,8 +444,8 @@ export default function UpdateChecker({
         </Alert>
       )}
 
-      {/* Success Message - Only show if just extracted (not existing) */}
-      {metadata && !isChecking && !error && !existingMetadata && (
+      {/* Success Message - Only show if just extracted in this session (not from existing) */}
+      {metadata && !isChecking && !error && !existingMetadata && lastResult && lastResult.id?.startsWith('new-') && (
         <Alert className="mt-2 bg-green-50 border-green-200">
           <CheckCircle className="h-4 w-4 text-green-600" />
           <AlertDescription className="text-xs text-green-800">
@@ -454,7 +454,7 @@ export default function UpdateChecker({
         </Alert>
       )}
       
-      {/* Persistent indicator when metadata exists */}
+      {/* Persistent indicator when metadata exists (from previous extraction) */}
       {existingMetadata && !isChecking && (
         <Badge variant="outline" className="mt-2 bg-blue-50 text-blue-700 border-blue-200 flex items-center space-x-1 w-fit">
           <FileCode className="w-3 h-3" />

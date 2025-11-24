@@ -203,7 +203,7 @@ export default function SCLDataAutomationPage() {
   // Column width states
   const [columnWidths, setColumnWidths] = useState<{[key: string]: number}>({
     update_check: 200,
-    actions: 150,
+    actions: 180,
     shared: 80,
     system: 120,
     type: 120,
@@ -1129,8 +1129,8 @@ export default function SCLDataAutomationPage() {
                   </Card>
                 )}
                 
-                <div className="overflow-x-auto">
-                  <Table className="table-fixed">
+                <div className="overflow-x-auto" style={{ overflowY: 'visible' }}>
+                  <Table className="table-fixed" style={{ position: 'relative' }}>
                     <TableHeader>
                       <TableRow>
                         <TableHead style={{ width: columnWidths.update_check }} className="relative group">
@@ -1301,7 +1301,7 @@ export default function SCLDataAutomationPage() {
                         </TableHead>
                       </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <TableBody style={{ position: 'relative' }}>
                       {getProcessedData().slice(0, 50).map((row, index) => {
                         const rowKey = `${row.id}-${row.individual_source}`;
                         const sharepointRow = sharepointData[rowKey];
@@ -1310,50 +1310,53 @@ export default function SCLDataAutomationPage() {
                         return (
                           <TableRow key={index}>
                             <TableCell style={{ width: columnWidths.update_check, minWidth: '250px' }}>
-                              {row.data_file ? (
-                                <UpdateChecker
-                                  indicatorId={row.id || ''}
-                                  dataFile={row.data_file || ''}
-                                  system={row.system || ''}
-                                  sourceUrl={row.source_url || ''}
-                                  sourceTitle={row.individual_source || ''}
-                                  existingMetadata={extractedMetadata.get(row.id || '') || null}
-                                  onMetadataExtracted={(indicatorId, metadata) => {
-                                    setExtractedMetadata(prev => {
-                                      const newMap = new Map(prev);
-                                      newMap.set(indicatorId, metadata);
-                                      return newMap;
-                                    });
-                                  }}
-                                />
-                              ) : (
-                                <span className="text-muted-foreground text-xs">
-                                  No data file available
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell style={{ width: columnWidths.actions, minWidth: '150px' }} className="p-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => fetchSharepointData(row)}
-                                disabled={isLoading || !row.data_file || !row.individual_source}
-                                className="text-xs w-full"
-                              >
-                                {isLoading ? (
-                                  <>
-                                    <div className="animate-spin rounded-full h-3 w-3 border-b border-current mr-2"></div>
-                                    Loading...
-                                  </>
+                              <div className="space-y-2">
+                                {row.data_file ? (
+                                  <UpdateChecker
+                                    indicatorId={row.id || ''}
+                                    dataFile={row.data_file || ''}
+                                    system={row.system || ''}
+                                    sourceUrl={row.source_url || ''}
+                                    sourceTitle={row.individual_source || ''}
+                                    existingMetadata={extractedMetadata.get(row.id || '') || null}
+                                    onMetadataExtracted={(indicatorId, metadata) => {
+                                      setExtractedMetadata(prev => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(indicatorId, metadata);
+                                        return newMap;
+                                      });
+                                    }}
+                                  />
                                 ) : (
-                                  'Check ID files'
+                                  <span className="text-muted-foreground text-xs">
+                                    No data file available
+                                  </span>
                                 )}
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => fetchSharepointData(row)}
+                                  disabled={isLoading || !row.data_file || !row.individual_source}
+                                  className="text-xs w-full"
+                                >
+                                  {isLoading ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-3 w-3 border-b border-current mr-2"></div>
+                                      Loading...
+                                    </>
+                                  ) : (
+                                    'Check ID files'
+                                  )}
+                                </Button>
+                              </div>
                             </TableCell>
-                            <TableCell className="text-center" style={{ width: columnWidths.shared }}>
+                            <TableCell style={{ width: columnWidths.actions, minWidth: '100px', padding: '8px' }} className="relative z-10">
+                              {/* Actions column - now empty, button moved to Update Check column */}
+                            </TableCell>
+                            <TableCell className="text-center" style={{ width: columnWidths.shared, overflow: 'visible', position: 'relative' }}>
                               {row.sharedSourceCount ? (
                                 <div 
-                                  className="relative group cursor-help"
+                                  className="relative group cursor-help inline-block"
                                   title="Source repeated in multiple indicators"
                                 >
                                   <Badge 
@@ -1363,7 +1366,7 @@ export default function SCLDataAutomationPage() {
                                     {row.sharedSourceCount}
                                   </Badge>
                                   {/* Tooltip - positioned above for top rows, below for bottom rows */}
-                                  <div className={`absolute px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 ${
+                                  <div className={`absolute px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none ${
                                     index < 3 ? 'top-full mt-2' : 'bottom-full mb-2'
                                   }`} 
                                   style={{
@@ -1371,7 +1374,10 @@ export default function SCLDataAutomationPage() {
                                     transform: 'translateX(-50%)',
                                     minWidth: '300px',
                                     maxWidth: '400px',
-                                    whiteSpace: 'normal'
+                                    maxHeight: '60vh',
+                                    overflowY: 'auto',
+                                    whiteSpace: 'normal',
+                                    zIndex: 9999
                                   }}>
                                     <div className="font-medium mb-1">Shared with:</div>
                                     {row.sharedSourceIndicators?.map((indicator, idx) => (
@@ -1722,38 +1728,63 @@ export default function SCLDataAutomationPage() {
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                          {/* Source Information */}
-                          {metadata.sourceInfo && Object.keys(metadata.sourceInfo).length > 0 && (
+                          {/* Data Sources Table */}
+                          {metadata.customFields?.dataSources && Array.isArray(metadata.customFields.dataSources) && metadata.customFields.dataSources.length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <Database className="w-4 h-4 mr-2" />
+                                Data Sources
+                              </h4>
+                              <div className="border rounded-md overflow-hidden">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead className="text-xs">Provider</TableHead>
+                                      <TableHead className="text-xs">Name</TableHead>
+                                      <TableHead className="text-xs">URL</TableHead>
+                                      <TableHead className="text-xs">Last Updated Date</TableHead>
+                                      <TableHead className="text-xs">Last Accessed Date</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {metadata.customFields.dataSources.map((source: any, idx: number) => (
+                                      <TableRow key={idx}>
+                                        <TableCell className="text-xs">{source.provider || '-'}</TableCell>
+                                        <TableCell className="text-xs">{source.name || '-'}</TableCell>
+                                        <TableCell className="text-xs">
+                                          {source.url ? (
+                                            <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                              {source.url}
+                                            </a>
+                                          ) : '-'}
+                                        </TableCell>
+                                        <TableCell className="text-xs">{source.lastUpdatedDate || '-'}</TableCell>
+                                        <TableCell className="text-xs">{source.lastAccessedDate || '-'}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Fallback: Show aggregated provider if no structured data sources */}
+                          {(!metadata.customFields?.dataSources || !Array.isArray(metadata.customFields.dataSources) || metadata.customFields.dataSources.length === 0) && metadata.sourceInfo?.provider && (
                             <div>
                               <h4 className="font-semibold text-sm mb-2 flex items-center">
                                 <Database className="w-4 h-4 mr-2" />
                                 Source Information
                               </h4>
                               <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
-                                {metadata.sourceInfo.provider && (
-                                  <div>
-                                    <span className="font-medium">Provider:</span> {metadata.sourceInfo.provider}
-                                  </div>
-                                )}
-                                {metadata.sourceInfo.organization && (
-                                  <div>
-                                    <span className="font-medium">Organization:</span> {metadata.sourceInfo.organization}
-                                  </div>
-                                )}
-                                {metadata.sourceInfo.website && (
-                                  <div>
-                                    <span className="font-medium">Website:</span>{' '}
-                                    <a href={metadata.sourceInfo.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                      {metadata.sourceInfo.website}
-                                    </a>
-                                  </div>
-                                )}
+                                <div>
+                                  <span className="font-medium">Provider:</span> {metadata.sourceInfo.provider}
+                                </div>
                               </div>
                             </div>
                           )}
 
-                          {/* URLs */}
-                          {metadata.urls && (metadata.urls.primaryUrl || metadata.urls.downloadUrl) && (
+                          {/* Fallback: Show URLs if no structured data sources */}
+                          {(!metadata.customFields?.dataSources || !Array.isArray(metadata.customFields.dataSources) || metadata.customFields.dataSources.length === 0) && metadata.urls && (metadata.urls.primaryUrl || metadata.urls.downloadUrl) && (
                             <div>
                               <h4 className="font-semibold text-sm mb-2 flex items-center">
                                 <Globe className="w-4 h-4 mr-2" />
@@ -1765,14 +1796,6 @@ export default function SCLDataAutomationPage() {
                                     <span className="font-medium">Primary URL:</span>{' '}
                                     <a href={metadata.urls.primaryUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
                                       {metadata.urls.primaryUrl}
-                                    </a>
-                                  </div>
-                                )}
-                                {metadata.urls.downloadUrl && (
-                                  <div>
-                                    <span className="font-medium">Download URL:</span>{' '}
-                                    <a href={metadata.urls.downloadUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
-                                      {metadata.urls.downloadUrl}
                                     </a>
                                   </div>
                                 )}
@@ -1794,8 +1817,61 @@ export default function SCLDataAutomationPage() {
                             </div>
                           )}
 
+                          {/* Targets Table */}
+                          {metadata.customFields?.targets && Array.isArray(metadata.customFields.targets) && metadata.customFields.targets.length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <TrendingUp className="w-4 h-4 mr-2" />
+                                Target(s)
+                              </h4>
+                              <div className="border rounded-md overflow-hidden">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead className="text-xs">Value</TableHead>
+                                      <TableHead className="text-xs">Year</TableHead>
+                                      <TableHead className="text-xs">Target Source(s)</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {metadata.customFields.targets.map((target: any, idx: number) => (
+                                      <TableRow key={idx}>
+                                        <TableCell className="text-xs">{target.value || '-'}</TableCell>
+                                        <TableCell className="text-xs">{target.year || '-'}</TableCell>
+                                        <TableCell className="text-xs">
+                                          {target.source ? (
+                                            <a href={target.source} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                              {target.source}
+                                            </a>
+                                          ) : '-'}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* How to Collect Data */}
+                          {metadata.customFields?.howToCollectData && Array.isArray(metadata.customFields.howToCollectData) && metadata.customFields.howToCollectData.length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <FileCode className="w-4 h-4 mr-2" />
+                                How to Collect Data
+                              </h4>
+                              <div className="bg-muted p-3 rounded-md text-sm">
+                                <ol className="list-decimal list-inside space-y-2">
+                                  {metadata.customFields.howToCollectData.map((instruction: string, idx: number) => (
+                                    <li key={idx} className="whitespace-pre-wrap">{instruction}</li>
+                                  ))}
+                                </ol>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Data Information */}
-                          {metadata.dataInfo && Object.keys(metadata.dataInfo).length > 0 && (
+                          {metadata.dataInfo && (metadata.dataInfo.units || metadata.dataInfo.frequency || metadata.dataInfo.timeRange) && (
                             <div>
                               <h4 className="font-semibold text-sm mb-2">Data Information</h4>
                               <div className="bg-muted p-3 rounded-md space-y-1 text-sm">
@@ -1807,11 +1883,6 @@ export default function SCLDataAutomationPage() {
                                 {metadata.dataInfo.frequency && (
                                   <div>
                                     <span className="font-medium">Frequency:</span> {metadata.dataInfo.frequency}
-                                  </div>
-                                )}
-                                {metadata.dataInfo.description && (
-                                  <div>
-                                    <span className="font-medium">Description:</span> {metadata.dataInfo.description}
                                   </div>
                                 )}
                                 {metadata.dataInfo.timeRange && (
@@ -1940,8 +2011,9 @@ export default function SCLDataAutomationPage() {
                                         </div>
                                       )}
                                       {/* Display any other metadata fields that don't match the standard categories */}
+                                      {/* Exclude 'provider', 'urls', 'units', 'frequency' as these should come from Excel metadata, not write-ups */}
                                       {Object.entries(metadata.writeUpInfo.metadata)
-                                        .filter(([key]) => !['key_terms', 'historical_data_methodology_and_challenges', 'target_methodology', 's_curve_trajectory', 'progress_assessment_methodology', 'connections'].includes(key))
+                                        .filter(([key]) => !['key_terms', 'historical_data_methodology_and_challenges', 'target_methodology', 's_curve_trajectory', 'progress_assessment_methodology', 'connections', 'provider', 'urls', 'units', 'frequency'].includes(key))
                                         .filter(([key, value]) => {
                                           // Filter out empty values, colons, or whitespace-only content
                                           const strValue = Array.isArray(value) ? value.join('') : String(value);
@@ -1962,7 +2034,7 @@ export default function SCLDataAutomationPage() {
                                   <div>
                                     <span className="font-medium text-yellow-700">⚠️ Contradictions Detected:</span>
                                     <div className="mt-1 space-y-2">
-                                      {metadata.writeUpInfo.contradictions.map((contradiction, idx) => (
+                                      {metadata.writeUpInfo.contradictions.map((contradiction: {field: string; excelValue?: any; writeUpValue?: any; description: string}, idx: number) => (
                                         <Alert key={idx} variant="destructive" className="py-2">
                                           <AlertTriangle className="h-4 w-4" />
                                           <AlertDescription className="text-xs">
@@ -1978,6 +2050,113 @@ export default function SCLDataAutomationPage() {
                                     </div>
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Log Section */}
+                          {(() => {
+                            const logData = metadata.customFields?.log;
+                            const hasLog = logData && Array.isArray(logData) && logData.length > 0;
+                            
+                            // Debug logging
+                            if (metadata.parsingInfo?.extractedFields?.includes('log') && !hasLog) {
+                              console.warn('[UI] Log marked as extracted but no entries found. customFields.log:', logData);
+                            }
+                            
+                            if (!hasLog) {
+                              return null;
+                            }
+                            
+                            console.log('[UI] Rendering Log section with', logData.length, 'entries');
+                            
+                            return (
+                              <div>
+                                <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                  <FileText className="w-4 h-4 mr-2" />
+                                  Log
+                                </h4>
+                                <div className="border rounded-md overflow-hidden">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead className="text-xs">Date</TableHead>
+                                        <TableHead className="text-xs">Author</TableHead>
+                                        <TableHead className="text-xs">Action</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {logData.map((entry: any, idx: number) => (
+                                        <TableRow key={idx}>
+                                          <TableCell className="text-xs">{entry.date || '-'}</TableCell>
+                                          <TableCell className="text-xs">{entry.author || '-'}</TableCell>
+                                          <TableCell className="text-xs">{entry.action || '-'}</TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Notes Section */}
+                          {metadata.customFields?.notes !== undefined && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <FileText className="w-4 h-4 mr-2" />
+                                Notes
+                              </h4>
+                              <div className="bg-muted p-3 rounded-md text-sm">
+                                {metadata.customFields.notes && Array.isArray(metadata.customFields.notes) && metadata.customFields.notes.length > 0 ? (
+                                  <ul className="list-disc list-inside space-y-1">
+                                    {metadata.customFields.notes.map((note: string, idx: number) => (
+                                      <li key={idx}>{note}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-muted-foreground italic">No notes available</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Old Sources Table */}
+                          {metadata.customFields?.oldSources && Array.isArray(metadata.customFields.oldSources) && metadata.customFields.oldSources.length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 flex items-center">
+                                <Database className="w-4 h-4 mr-2" />
+                                Old Source(s)
+                              </h4>
+                              <div className="border rounded-md overflow-hidden">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead className="text-xs">Provider</TableHead>
+                                      <TableHead className="text-xs">Name</TableHead>
+                                      <TableHead className="text-xs">URL</TableHead>
+                                      <TableHead className="text-xs">Last Updated Date</TableHead>
+                                      <TableHead className="text-xs">Last Accessed Date</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {metadata.customFields.oldSources.map((source: any, idx: number) => (
+                                      <TableRow key={idx}>
+                                        <TableCell className="text-xs">{source.provider || '-'}</TableCell>
+                                        <TableCell className="text-xs">{source.name || '-'}</TableCell>
+                                        <TableCell className="text-xs">
+                                          {source.url ? (
+                                            <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                                              {source.url}
+                                            </a>
+                                          ) : '-'}
+                                        </TableCell>
+                                        <TableCell className="text-xs">{source.lastUpdatedDate || '-'}</TableCell>
+                                        <TableCell className="text-xs">{source.lastAccessedDate || '-'}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
                               </div>
                             </div>
                           )}
